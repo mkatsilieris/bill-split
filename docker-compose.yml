@@ -1,6 +1,8 @@
 # Bill Split - family expense sharing
 # Usage:  cp .env.example .env  &&  docker compose up -d --build
 # Then open http://<host>:8080
+# Internet access goes through a Cloudflare Tunnel (see README):
+#   set COMPOSE_PROFILES=internet and TUNNEL_TOKEN in .env.
 
 services:
   db:
@@ -43,6 +45,18 @@ services:
       - "${WEB_PORT:-8080}:80"
     depends_on:
       - api
+
+  # Cloudflare Tunnel: publishes the web container as https://<hostname> without opening
+  # router ports. Only started when COMPOSE_PROFILES=internet is set in .env.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: [internet]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - web
 
 volumes:
   pgdata:

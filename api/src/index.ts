@@ -8,7 +8,11 @@ import { groupsRouter } from './routes/groups.js';
 
 const app = express();
 app.disable('x-powered-by');
-app.use(cors());
+// Behind nginx (and Cloudflare): take the client IP / protocol from X-Forwarded-* headers.
+app.set('trust proxy', 1);
+// The SPA is served from the same origin, so only APP_URL (and localhost in dev) may call the API cross-origin.
+const allowedOrigins = new Set([config.appUrl, ...(config.nodeEnv === 'production' ? [] : ['http://localhost:5173'])]);
+app.use(cors({ origin: (origin, cb) => cb(null, !origin || allowedOrigins.has(origin)) }));
 app.use(express.json({ limit: '200kb' }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

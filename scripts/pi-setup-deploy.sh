@@ -27,7 +27,7 @@ usermod -aG docker "$DEPLOY_USER"
 cat > /usr/local/bin/billsplit-remote <<'REMOTE'
 #!/bin/sh
 # Forced SSH command for the Bill Split deploy key.
-# Allowed: deploy (tar.gz of the repo on stdin) | status | logs [db|api|web] | restart
+# Allowed: deploy (tar.gz of the repo on stdin) | status | logs [db|api|web|tunnel] | restart
 set -eu
 set -f
 APP_DIR="$HOME/bill-split"
@@ -56,14 +56,14 @@ case "${1:-}" in
     cd "$APP_DIR" && $COMPOSE ps
     ;;
   logs)
-    case "${2:-}" in ""|db|api|web) ;; *) echo "Άγνωστο service: $2" >&2; exit 1 ;; esac
+    case "${2:-}" in ""|db|api|web|tunnel) ;; *) echo "Άγνωστο service: $2" >&2; exit 1 ;; esac
     cd "$APP_DIR" && $COMPOSE logs --tail=200 ${2:-}
     ;;
   restart)
     cd "$APP_DIR" && $COMPOSE restart
     ;;
   *)
-    echo "Επιτρέπονται μόνο: deploy | status | logs [db|api|web] | restart" >&2
+    echo "Επιτρέπονται μόνο: deploy | status | logs [db|api|web|tunnel] | restart" >&2
     exit 1
     ;;
 esac

@@ -46,7 +46,8 @@ docker compose up -d --build
 | Μεταβλητή | Περιγραφή |
 |---|---|
 | `WEB_PORT` | Θύρα στην οποία ακούει η εφαρμογή (default 8080) |
-| `APP_URL` | Δημόσιο URL της εφαρμογής, μπαίνει στους συνδέσμους επαναφοράς κωδικού |
+| `APP_URL` | Δημόσιο URL της εφαρμογής, μπαίνει στους συνδέσμους επαναφοράς κωδικού και είναι το μόνο επιτρεπτό CORS origin |
+| `COMPOSE_PROFILES` / `TUNNEL_TOKEN` | `internet` + token του Cloudflare Tunnel για πρόσβαση από το Internet (βλ. παρακάτω). Χωρίς αυτά = μόνο τοπικό δίκτυο |
 | `JWT_SECRET` | Μυστικό υπογραφής των tokens σύνδεσης. **Άλλαξέ το.** |
 | `POSTGRES_*` | Στοιχεία βάσης (εσωτερικά στο docker) |
 | `SMTP_*` | Προαιρετικά, για αποστολή email επαναφοράς κωδικού |
@@ -110,6 +111,51 @@ ssh billsplit-pi logs api     # logs (db | api | web)
 
 Ανεβαίνει μόνο ό,τι έχει γίνει commit. Το `.env` στο Pi δεν αλλάζει ποτέ από το deploy.
 Όποιος έχει το κλειδί μπορεί να ανεβάσει κώδικα στο Pi, οπότε κράτα το ιδιωτικό.
+
+## Πρόσβαση από το Internet (Cloudflare Tunnel + Access)
+
+Η εφαρμογή βγαίνει στο Internet ως `https://bills.ninblack.com` **χωρίς** άνοιγμα θύρας στο router:
+το container `tunnel` (cloudflared) ανοίγει εξερχόμενη σύνδεση προς το Cloudflare, και το
+Cloudflare Access βάζει μπροστά μια σελίδα σύνδεσης με κωδικό μίας χρήσης στο email. Μόνο τα
+emails της allowlist περνούν. Όλα αυτά είναι στο δωρεάν Zero Trust plan (έως 50 χρήστες).
+
+Τι υπάρχει στο Cloudflare (λογαριασμός του `ninblack.com`):
+
+| Πού | Τι |
+|---|---|
+| Zero Trust > Networks > Tunnels | Tunnel `bill-split`, public hostname `bills.ninblack.com` → `http://web:80` |
+| DNS | `CNAME bills` → `<tunnel-id>.cfargotunnel.com` (proxied) |
+| Zero Trust > Access > Applications | Εφαρμογή `Bill Split`, policy `Family` (Allow, Emails: …) |
+
+**Στο Pi** (μία φορά) πρόσθεσε στο `/home/deploy/bill-split/.env`:
+
+```
+APP_URL=https://bills.ninblack.com
+COMPOSE_PROFILES=internet
+TUNNEL_TOKEN=<το token από Zero Trust > Networks > Tunnels > bill-split > Configure>
+```
+
+και μετά `scripts/deploy.ps1` (ή `ssh billsplit-pi restart` αν δεν άλλαξε ο κώδικας).
+
+**Προσθήκη / αφαίρεση μέλους στην allowlist**
+
+- Dashboard: Zero Trust > Access > Applications > Bill Split > Policies > Family > Include > Emails.
+- Ή με το script (χρειάζεται API token με `Access: Apps and Policies: Edit`):
+
+```powershell
+$env:CLOUDFLARE_API_TOKEN = "..."
+scripts/access-allowlist.ps1 -Emails a@example.com, b@example.com   # αντικαθιστά όλη τη λίστα
+```
+
+Ο αριθμός χρηστών (seats) του Zero Trust δεν μπορεί να ξεπεράσει το μήκος της allowlist, άρα το
+plan μένει δωρεάν. Αν κάποιος φύγει, βγάλε τον και από Zero Trust > My Team > Users για να
+ελευθερωθεί το seat.
+
+**Σημειώσεις**
+
+- Στο τοπικό δίκτυο η εφαρμογή παραμένει διαθέσιμη στο `http://ninblack-pi.local:8080` χωρίς Access.
+- Χωρίς `COMPOSE_PROFILES=internet` το container `tunnel` δεν δημιουργείται καθόλου.
+- Logs του tunnel: `ssh billsplit-pi logs tunnel`.
 
 ## Ανάπτυξη (χωρίς docker)
 
