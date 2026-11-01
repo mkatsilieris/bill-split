@@ -88,7 +88,7 @@ async function loadExpense(groupId: number, expenseId: number) {
        JOIN users u ON u.id = e.paid_by
        LEFT JOIN expense_shares es ON es.expense_id = e.id
        LEFT JOIN users su ON su.id = es.user_id
-      WHERE e.group_id = $1 AND e.id = $2
+      WHERE e.group_id = $1 AND e.id = $2 AND e.deleted_at IS NULL
       GROUP BY e.id, u.name`,
     [groupId, expenseId],
   );
@@ -96,11 +96,7 @@ async function loadExpense(groupId: number, expenseId: number) {
   return rows[0];
 }
 
-expensesRouter.get('/', async (req, res) => {
-  const groupId = parseId((req.params as Record<string, string>).id);
-  await requireMember(groupId, req.user.id);
-  const limit = Math.min(Number(req.query.limit ?? 100), 500);
-  const offset = Math.max(Number(req.query.offset ?? 0), 0);
+async function listExpenses(groupId: number, deleted: boolean, limit: number, offset: number) {
   const { rows } = await pool.query(
     `SELECT e.*, u.name AS paid_by_name,
             COALESCE(json_agg(json_build_object('user_id', es.user_id, 'name', su.name, 'amount', es.amount)
@@ -109,13 +105,27 @@ expensesRouter.get('/', async (req, res) => {
        JOIN users u ON u.id = e.paid_by
        LEFT JOIN expense_shares es ON es.expense_id = e.id
        LEFT JOIN users su ON su.id = es.user_id
-      WHERE e.group_id = $1
+      WHERE e.group_id = $1 AND (e.deleted_at IS NOT NULL) = $2
       GROUP BY e.id, u.name
       ORDER BY e.spent_at DESC, e.created_at DESC
-      LIMIT $2 OFFSET $3`,
-    [groupId, limit, offset],
+      LIMIT $3 OFFSET $4`,
+    [groupId, deleted, limit, offset],
   );
-  res.json({ expenses: rows });
+  return rows;
+}
+
+expensesRouter.get('/', async (req, res) => {
+  const groupId = parseId((req.params as Record<string, string>).id);
+  await requireMember(groupId, req.user.id);
+  const limit = Math.min(Number(req.query.limit ?? 100), 500);
+  const offset = Math.max(Number(req.query.offset ?? 0), 0);
+  res.json({ expenses: await listExpenses(groupId, false, limit, offset) });
+});
+
+expensesRouter.get('/deleted', async (req, res) => {
+  const groupId = parseId((req.params as Record<string, string>).id);
+  await requireMember(groupId, req.user.id);
+  res.json({ expenses: await listExpenses(groupId, true, 500, 0) });
 });
 
 expensesRouter.post('/', async (req, res) => {
@@ -174,7 +184,22 @@ expensesRouter.delete('/:expenseId', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   const expenseId = parseId(req.params.expenseId);
   await requireMember(groupId, req.user.id);
-  const result = await pool.query('DELETE FROM expenses WHERE group_id = $1 AND id = $2', [groupId, expenseId]);
+  const result = await pool.query(
+    'UPDATE expenses SET deleted_at = now(), deleted_by = $3 WHERE group_id = $1 AND id = $2 AND deleted_at IS NULL',
+    [groupId, expenseId, req.user.id],
+  );
   if (!result.rowCount) throw notFound('Το έξοδο δεν βρέθηκε');
   res.status(204).end();
+});
+
+expensesRouter.post('/:expenseId/restore', async (req, res) => {
+  const groupId = parseId((req.params as Record<string, string>).id);
+  const expenseId = parseId(req.params.expenseId);
+  await requireMember(groupId, req.user.id);
+  const result = await pool.query(
+    'UPDATE expenses SET deleted_at = NULL, deleted_by = NULL WHERE group_id = $1 AND id = $2 AND deleted_at IS NOT NULL',
+    [groupId, expenseId],
+  );
+  if (!result.rowCount) throw notFound('Το έξοδο δεν βρέθηκε');
+  res.json({ expense: await loadExpense(groupId, expenseId) });
 });

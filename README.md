@@ -12,6 +12,7 @@ Self-hosted εφαρμογή (τύπου Splitwise) για την καταγρα
 - **Κανόνας διαμοιρασμού ανά ομάδα**: ίσα μέρη (π.χ. μισά-μισά) ή ποσοστό ανά μέλος (π.χ. 60/40).
 - **Έξοδα**: ποσό, ποιος πλήρωσε, ημερομηνία, κατηγορία. Κάθε έξοδο ακολουθεί την προεπιλογή της ομάδας ή δικό του διαμοιρασμό (ίσα μεταξύ επιλεγμένων, ποσοστά, ακριβή ποσά).
 - **Υπόλοιπα & εξόφληση**: ποιος χρωστάει σε ποιον, με τις λιγότερες δυνατές πληρωμές. Καταγραφή πληρωμών με ιστορικό.
+- **Τίποτα δεν σβήνεται**: τα διαγραμμένα έξοδα, πληρωμές, ομάδες και μέλη μένουν στη βάση με `deleted_at` και επαναφέρονται. Κάθε αλλαγή κρατά την προηγούμενη τιμή στον πίνακα `row_history`.
 - **Mobile-first UI** στα ελληνικά, light/dark mode.
 
 ## Αρχιτεκτονική
@@ -136,5 +137,23 @@ Tests λογικής διαμοιρασμού/υπολοίπων: `cd api && npm
 | GET/POST/PUT/DELETE | `/api/groups/:id/expenses[/:eid]` | Έξοδα |
 | GET | `/api/groups/:id/balances` | Υπόλοιπα + προτεινόμενες πληρωμές |
 | GET/POST/DELETE | `/api/groups/:id/settlements[/:sid]` | Εξοφλήσεις |
+| GET | `/api/groups/deleted` · `/api/groups/:id/expenses/deleted` · `/api/groups/:id/settlements/deleted` | Διαγραμμένα |
+| POST | `/api/groups/:id/restore` · `/api/groups/:id/expenses/:eid/restore` · `/api/groups/:id/settlements/:sid/restore` | Επαναφορά |
 
 Όλα τα endpoints εκτός των auth απαιτούν header `Authorization: Bearer <token>`.
+
+## Διαγραφές και ιστορικό
+
+Το `DELETE` του API βάζει `deleted_at` / `deleted_by`, και triggers στη βάση απορρίπτουν κάθε πραγματικό `DELETE` ή
+`TRUNCATE`. Εξαίρεση είναι το `DELETE` στο `expense_shares`: η επεξεργασία εξόδου αντικαθιστά τα μερίδια, και τα παλιά μένουν
+στο `row_history`.
+
+Για αναίρεση επεξεργασίας, το `row_history` έχει την παλιά γραμμή ως JSON (χωρίς `password_hash`). Όσες γραμμές άλλαξαν στην
+ίδια συναλλαγή έχουν το ίδιο `changed_at`:
+
+```sql
+SELECT table_name, operation, old_row, changed_at FROM row_history
+ WHERE (table_name = 'expenses' AND old_row->>'id' = '42')
+    OR (table_name = 'expense_shares' AND old_row->>'expense_id' = '42')
+ ORDER BY changed_at DESC;
+```

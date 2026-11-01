@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { pool, withTransaction } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { HttpError, badRequest, forbidden, notFound } from '../errors.js';
-import { loadMembers, parseId, requireMember, requireOwner } from '../lib/membership.js';
+import { addMember, loadMembers, parseId, requireMember, requireOwner, type GroupRow } from '../lib/membership.js';
 import { expensesRouter } from './expenses.js';
 import { settlementsRouter } from './settlements.js';
 
@@ -20,20 +20,25 @@ function newInviteCode(): string {
   return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
 }
 
+async function softDeleteGroup(groupId: number, userId: number): Promise<void> {
+  await pool.query('UPDATE groups SET deleted_at = now(), deleted_by = $2 WHERE id = $1 AND deleted_at IS NULL', [groupId, userId]);
+}
+
 /** All groups of the current user, with their personal balance in each. */
 groupsRouter.get('/', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT g.id, g.name, g.description, g.currency, g.split_mode, g.created_at, gm.role,
-            (SELECT COUNT(*) FROM group_members WHERE group_id = g.id)::int AS member_count,
-            COALESCE((SELECT SUM(amount) FROM expenses WHERE group_id = g.id), 0) AS total_spent,
-              COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.group_id = g.id AND e.paid_by = $1), 0)
+            (SELECT COUNT(*) FROM group_members WHERE group_id = g.id AND deleted_at IS NULL)::int AS member_count,
+            COALESCE((SELECT SUM(amount) FROM expenses WHERE group_id = g.id AND deleted_at IS NULL), 0) AS total_spent,
+              COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.group_id = g.id AND e.paid_by = $1 AND e.deleted_at IS NULL), 0)
             - COALESCE((SELECT SUM(es.amount) FROM expense_shares es JOIN expenses e ON e.id = es.expense_id
-                         WHERE e.group_id = g.id AND es.user_id = $1), 0)
-            + COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = g.id AND from_user = $1), 0)
-            - COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = g.id AND to_user = $1), 0)
+                         WHERE e.group_id = g.id AND es.user_id = $1 AND e.deleted_at IS NULL), 0)
+            + COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = g.id AND from_user = $1 AND deleted_at IS NULL), 0)
+            - COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = g.id AND to_user = $1 AND deleted_at IS NULL), 0)
               AS my_balance
        FROM groups g
-       JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1
+       JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1 AND gm.deleted_at IS NULL
+      WHERE g.deleted_at IS NULL
       ORDER BY g.created_at DESC`,
     [req.user.id],
   );
@@ -67,16 +72,24 @@ groupsRouter.post('/', async (req, res) => {
 /** Join a group with its invite code. */
 groupsRouter.post('/join', async (req, res) => {
   const body = z.object({ code: z.string().trim().toUpperCase().min(1) }).parse(req.body);
-  const { rows } = await pool.query('SELECT * FROM groups WHERE invite_code = $1', [body.code]);
+  const { rows } = await pool.query<GroupRow>('SELECT * FROM groups WHERE invite_code = $1 AND deleted_at IS NULL', [body.code]);
   const group = rows[0];
   if (!group) throw notFound('Δεν βρέθηκε ομάδα με αυτόν τον κωδικό');
-  await pool.query(
-    `INSERT INTO group_members (group_id, user_id, role, share_percent)
-     VALUES ($1, $2, 'member', CASE WHEN $3 = 'percentage' THEN 0 ELSE NULL END)
-     ON CONFLICT DO NOTHING`,
-    [group.id, req.user.id, group.split_mode],
-  );
+  await addMember(group, req.user.id);
   res.json({ group });
+});
+
+/** Deleted groups the current user owns and can restore. */
+groupsRouter.get('/deleted', async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT g.id, g.name, g.deleted_at
+       FROM groups g
+       JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1 AND gm.role = 'owner' AND gm.deleted_at IS NULL
+      WHERE g.deleted_at IS NOT NULL
+      ORDER BY g.deleted_at DESC`,
+    [req.user.id],
+  );
+  res.json({ groups: rows });
 });
 
 groupsRouter.get('/:id', async (req, res) => {
@@ -156,7 +169,21 @@ groupsRouter.patch('/:id', async (req, res) => {
 groupsRouter.delete('/:id', async (req, res) => {
   const groupId = parseId(req.params.id);
   await requireOwner(groupId, req.user.id);
-  await pool.query('DELETE FROM groups WHERE id = $1', [groupId]);
+  await softDeleteGroup(groupId, req.user.id);
+  res.status(204).end();
+});
+
+/** Undo a group deletion. Expenses that were deleted on their own stay deleted. */
+groupsRouter.post('/:id/restore', async (req, res) => {
+  const groupId = parseId(req.params.id);
+  const result = await pool.query(
+    `UPDATE groups g SET deleted_at = NULL, deleted_by = NULL
+      WHERE g.id = $1 AND g.deleted_at IS NOT NULL
+        AND EXISTS (SELECT 1 FROM group_members gm
+                     WHERE gm.group_id = g.id AND gm.user_id = $2 AND gm.role = 'owner' AND gm.deleted_at IS NULL)`,
+    [groupId, req.user.id],
+  );
+  if (!result.rowCount) throw notFound('Η ομάδα δεν βρέθηκε');
   res.status(204).end();
 });
 
@@ -180,13 +207,7 @@ groupsRouter.post('/:id/members', async (req, res) => {
   if (!rows[0]) {
     throw notFound('Δεν υπάρχει χρήστης με αυτό το email. Πρέπει πρώτα να κάνει εγγραφή (ή δώστε του τον κωδικό πρόσκλησης).');
   }
-  const result = await pool.query(
-    `INSERT INTO group_members (group_id, user_id, role, share_percent)
-     VALUES ($1, $2, 'member', CASE WHEN $3 = 'percentage' THEN 0 ELSE NULL END)
-     ON CONFLICT DO NOTHING`,
-    [groupId, rows[0].id, group.split_mode],
-  );
-  if (!result.rowCount) throw new HttpError(409, 'Είναι ήδη μέλος της ομάδας');
+  if (!(await addMember(group, rows[0].id))) throw new HttpError(409, 'Είναι ήδη μέλος της ομάδας');
   res.status(201).json({ members: await loadMembers(groupId) });
 });
 
@@ -199,13 +220,13 @@ groupsRouter.delete('/:id/members/:userId', async (req, res) => {
 
   const { rows } = await pool.query<{ balance: number; count: number }>(
     `SELECT
-       (  COALESCE((SELECT SUM(amount) FROM expenses WHERE group_id = $1 AND paid_by = $2), 0)
+       (  COALESCE((SELECT SUM(amount) FROM expenses WHERE group_id = $1 AND paid_by = $2 AND deleted_at IS NULL), 0)
         - COALESCE((SELECT SUM(es.amount) FROM expense_shares es JOIN expenses e ON e.id = es.expense_id
-                     WHERE e.group_id = $1 AND es.user_id = $2), 0)
-        + COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = $1 AND from_user = $2), 0)
-        - COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = $1 AND to_user = $2), 0)
+                     WHERE e.group_id = $1 AND es.user_id = $2 AND e.deleted_at IS NULL), 0)
+        + COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = $1 AND from_user = $2 AND deleted_at IS NULL), 0)
+        - COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = $1 AND to_user = $2 AND deleted_at IS NULL), 0)
        ) AS balance,
-       (SELECT COUNT(*) FROM group_members WHERE group_id = $1)::int AS count`,
+       (SELECT COUNT(*) FROM group_members WHERE group_id = $1 AND deleted_at IS NULL)::int AS count`,
     [groupId, targetId],
   );
   if (Math.abs(rows[0].balance) >= 0.005) {
@@ -214,10 +235,14 @@ groupsRouter.delete('/:id/members/:userId', async (req, res) => {
   if (targetId === req.user.id && role === 'owner' && rows[0].count > 1) {
     throw badRequest('Ο διαχειριστής δεν μπορεί να αποχωρήσει όσο υπάρχουν άλλα μέλη. Διαγράψτε την ομάδα ή αφαιρέστε τα μέλη πρώτα.');
   }
-  await pool.query('DELETE FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, targetId]);
-  if (rows[0].count === 1) {
-    // last member left: remove the empty group
-    await pool.query('DELETE FROM groups WHERE id = $1', [groupId]);
+  if (targetId === req.user.id && rows[0].count === 1) {
+    // last member left: delete the group, the membership stays so that it can be restored
+    await softDeleteGroup(groupId, req.user.id);
+  } else {
+    await pool.query(
+      'UPDATE group_members SET deleted_at = now(), deleted_by = $3 WHERE group_id = $1 AND user_id = $2 AND deleted_at IS NULL',
+      [groupId, targetId, req.user.id],
+    );
   }
   res.status(204).end();
 });

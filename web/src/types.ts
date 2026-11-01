@@ -25,6 +25,12 @@ export interface GroupSummary extends Omit<Group, 'invite_code' | 'created_by'> 
   my_balance: number;
 }
 
+export interface DeletedGroup {
+  id: number;
+  name: string;
+  deleted_at: string;
+}
+
 export interface Member {
   user_id: number;
   name: string;

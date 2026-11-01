@@ -71,3 +71,53 @@ CREATE TABLE IF NOT EXISTS settlements (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS settlements_group_idx ON settlements(group_id, settled_at DESC);
+
+-- Nothing is ever removed: rows are flagged with deleted_at and can be restored.
+ALTER TABLE groups        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
+ALTER TABLE expenses      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
+ALTER TABLE settlements   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
+
+-- Previous version of every changed row, so that edits can be undone too.
+-- Rows changed in one transaction share the same changed_at.
+CREATE TABLE IF NOT EXISTS row_history (
+  id         BIGSERIAL PRIMARY KEY,
+  table_name TEXT NOT NULL,
+  operation  TEXT NOT NULL,
+  old_row    JSONB NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS row_history_table_idx ON row_history(table_name, changed_at DESC);
+
+CREATE OR REPLACE FUNCTION keep_row_history() RETURNS trigger AS $$
+BEGIN
+  INSERT INTO row_history (table_name, operation, old_row)
+  VALUES (TG_TABLE_NAME, TG_OP, to_jsonb(OLD) - 'password_hash');
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION forbid_hard_delete() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'Rows of % are never deleted, set deleted_at instead', TG_TABLE_NAME;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements'] LOOP
+    EXECUTE format('CREATE OR REPLACE TRIGGER keep_history AFTER UPDATE OR DELETE ON %I
+                    FOR EACH ROW EXECUTE FUNCTION keep_row_history()', t);
+  END LOOP;
+  -- expense_shares is left out: editing an expense replaces its shares, the old ones stay in row_history
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'row_history'] LOOP
+    EXECUTE format('CREATE OR REPLACE TRIGGER forbid_delete BEFORE DELETE ON %I
+                    FOR EACH ROW EXECUTE FUNCTION forbid_hard_delete()', t);
+  END LOOP;
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'row_history'] LOOP
+    EXECUTE format('CREATE OR REPLACE TRIGGER forbid_truncate BEFORE TRUNCATE ON %I
+                    FOR EACH STATEMENT EXECUTE FUNCTION forbid_hard_delete()', t);
+  END LOOP;
+END;
+$$;

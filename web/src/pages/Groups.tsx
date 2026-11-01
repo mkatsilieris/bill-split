@@ -1,23 +1,36 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, errorMessage } from '../api';
-import { money } from '../format';
-import type { Group, GroupSummary } from '../types';
-import { Empty, ErrorBox, Field, Modal, Spinner } from '../components/ui';
+import { date, money } from '../format';
+import type { DeletedGroup, Group, GroupSummary } from '../types';
+import { DeletedItems, Empty, ErrorBox, Field, Modal, Spinner } from '../components/ui';
 
 export default function Groups() {
   const [groups, setGroups] = useState<GroupSummary[] | null>(null);
+  const [deleted, setDeleted] = useState<DeletedGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
 
   const load = useCallback(() => {
-    api<{ groups: GroupSummary[] }>('/groups')
-      .then((r) => setGroups(r.groups))
+    Promise.all([api<{ groups: GroupSummary[] }>('/groups'), api<{ groups: DeletedGroup[] }>('/groups/deleted')])
+      .then(([active, removed]) => {
+        setGroups(active.groups);
+        setDeleted(removed.groups);
+      })
       .catch((err) => setError(errorMessage(err)));
   }, []);
 
   useEffect(load, [load]);
+
+  async function restore(g: DeletedGroup) {
+    try {
+      await api(`/groups/${g.id}/restore`, { method: 'POST' });
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
 
   return (
     <div className="page">
@@ -74,6 +87,16 @@ export default function Groups() {
           ))}
         </ul>
       )}
+      <DeletedItems
+        items={deleted}
+        label={(g) => (
+          <>
+            <div className="list-title">{g.name}</div>
+            <div className="muted small">Διαγράφηκε {date(g.deleted_at)}</div>
+          </>
+        )}
+        onRestore={restore}
+      />
       {showCreate && <CreateGroupModal onClose={() => setShowCreate(false)} />}
       {showJoin && <JoinGroupModal onClose={() => setShowJoin(false)} />}
     </div>

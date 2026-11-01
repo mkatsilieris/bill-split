@@ -103,6 +103,34 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   );
 }
 
+/** Collapsed list of deleted items with a restore button. Renders nothing when there are none. */
+export function DeletedItems<T extends { id: number }>({
+  items,
+  label,
+  onRestore,
+}: {
+  items: T[];
+  label: (item: T) => ReactNode;
+  onRestore: (item: T) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <details className="card deleted-items">
+      <summary>Διαγραμμένα ({items.length})</summary>
+      <ul className="list plain">
+        {items.map((item) => (
+          <li key={item.id} className="list-item static">
+            <div className="list-main">{label(item)}</div>
+            <button className="btn btn-small" onClick={() => onRestore(item)}>
+              Επαναφορά
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function BalanceText({ amount, currency, format }: { amount: number; currency: string; format: (n: number, c: string) => string }) {
   const cls = amount > 0.004 ? 'pos' : amount < -0.004 ? 'neg' : 'zero';
   return <span className={`balance ${cls}`}>{format(Math.abs(amount), currency)}</span>;

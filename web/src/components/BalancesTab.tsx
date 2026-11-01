@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, errorMessage } from '../api';
 import { date, money, today } from '../format';
 import type { Balance, Group, Member, Settlement, Suggestion } from '../types';
-import { Avatar, Empty, ErrorBox, Field, Modal, Spinner } from './ui';
+import { Avatar, DeletedItems, Empty, ErrorBox, Field, Modal, Spinner } from './ui';
 
 interface Props {
   group: Group;
@@ -23,6 +23,7 @@ type SettleDraft = { from_user: number; to_user: number; amount: number } | null
 export function BalancesTab({ group, members, currentUserId, version, onChanged }: Props) {
   const [data, setData] = useState<BalancesResponse | null>(null);
   const [settlements, setSettlements] = useState<Settlement[] | null>(null);
+  const [deleted, setDeleted] = useState<Settlement[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<SettleDraft | 'new'>(null);
 
@@ -30,10 +31,12 @@ export function BalancesTab({ group, members, currentUserId, version, onChanged 
     Promise.all([
       api<BalancesResponse>(`/groups/${group.id}/balances`),
       api<{ settlements: Settlement[] }>(`/groups/${group.id}/settlements`),
+      api<{ settlements: Settlement[] }>(`/groups/${group.id}/settlements/deleted`),
     ])
-      .then(([b, s]) => {
+      .then(([b, s, removed]) => {
         setData(b);
         setSettlements(s.settlements);
+        setDeleted(removed.settlements);
       })
       .catch((err) => setError(errorMessage(err)));
   }, [group.id, version]);
@@ -42,6 +45,15 @@ export function BalancesTab({ group, members, currentUserId, version, onChanged 
     if (!confirm(`Να διαγραφεί η πληρωμή ${money(s.amount, group.currency)} από ${s.from_name} προς ${s.to_name};`)) return;
     try {
       await api(`/groups/${group.id}/settlements/${s.id}`, { method: 'DELETE' });
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function restoreSettlement(s: Settlement) {
+    try {
+      await api(`/groups/${group.id}/settlements/${s.id}/restore`, { method: 'POST' });
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -157,6 +169,20 @@ export function BalancesTab({ group, members, currentUserId, version, onChanged 
             ))}
           </ul>
         )}
+        <DeletedItems
+          items={deleted}
+          label={(s) => (
+            <>
+              <div className="list-title">
+                {s.from_name} → {s.to_name}
+              </div>
+              <div className="muted small">
+                {date(s.settled_at)} · {money(s.amount, group.currency)}
+              </div>
+            </>
+          )}
+          onRestore={restoreSettlement}
+        />
       </section>
 
       {draft !== null && (

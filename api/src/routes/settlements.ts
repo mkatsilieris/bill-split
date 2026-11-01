@@ -17,11 +17,11 @@ settlementsRouter.get('/balances', async (req, res) => {
   const shareRows = await pool.query<{ expense_id: number; paid_by: number; user_id: number; amount: number }>(
     `SELECT es.expense_id, e.paid_by, es.user_id, es.amount
        FROM expense_shares es JOIN expenses e ON e.id = es.expense_id
-      WHERE e.group_id = $1`,
+      WHERE e.group_id = $1 AND e.deleted_at IS NULL`,
     [groupId],
   );
   const settlementRows = await pool.query<{ from_user: number; to_user: number; amount: number }>(
-    'SELECT from_user, to_user, amount FROM settlements WHERE group_id = $1',
+    'SELECT from_user, to_user, amount FROM settlements WHERE group_id = $1 AND deleted_at IS NULL',
     [groupId],
   );
 
@@ -76,19 +76,29 @@ settlementsRouter.get('/balances', async (req, res) => {
   });
 });
 
-settlementsRouter.get('/settlements', async (req, res) => {
-  const groupId = parseId((req.params as Record<string, string>).id);
-  await requireMember(groupId, req.user.id);
+async function listSettlements(groupId: number, deleted: boolean) {
   const { rows } = await pool.query(
     `SELECT s.*, fu.name AS from_name, tu.name AS to_name
        FROM settlements s
        JOIN users fu ON fu.id = s.from_user
        JOIN users tu ON tu.id = s.to_user
-      WHERE s.group_id = $1
+      WHERE s.group_id = $1 AND (s.deleted_at IS NOT NULL) = $2
       ORDER BY s.settled_at DESC, s.created_at DESC`,
-    [groupId],
+    [groupId, deleted],
   );
-  res.json({ settlements: rows });
+  return rows;
+}
+
+settlementsRouter.get('/settlements', async (req, res) => {
+  const groupId = parseId((req.params as Record<string, string>).id);
+  await requireMember(groupId, req.user.id);
+  res.json({ settlements: await listSettlements(groupId, false) });
+});
+
+settlementsRouter.get('/settlements/deleted', async (req, res) => {
+  const groupId = parseId((req.params as Record<string, string>).id);
+  await requireMember(groupId, req.user.id);
+  res.json({ settlements: await listSettlements(groupId, true) });
 });
 
 /** Record a payment between two members ("settle up"). */
@@ -121,7 +131,22 @@ settlementsRouter.delete('/settlements/:settlementId', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   const settlementId = parseId(req.params.settlementId);
   await requireMember(groupId, req.user.id);
-  const result = await pool.query('DELETE FROM settlements WHERE group_id = $1 AND id = $2', [groupId, settlementId]);
+  const result = await pool.query(
+    'UPDATE settlements SET deleted_at = now(), deleted_by = $3 WHERE group_id = $1 AND id = $2 AND deleted_at IS NULL',
+    [groupId, settlementId, req.user.id],
+  );
+  if (!result.rowCount) throw notFound('Η εξόφληση δεν βρέθηκε');
+  res.status(204).end();
+});
+
+settlementsRouter.post('/settlements/:settlementId/restore', async (req, res) => {
+  const groupId = parseId((req.params as Record<string, string>).id);
+  const settlementId = parseId(req.params.settlementId);
+  await requireMember(groupId, req.user.id);
+  const result = await pool.query(
+    'UPDATE settlements SET deleted_at = NULL, deleted_by = NULL WHERE group_id = $1 AND id = $2 AND deleted_at IS NOT NULL',
+    [groupId, settlementId],
+  );
   if (!result.rowCount) throw notFound('Η εξόφληση δεν βρέθηκε');
   res.status(204).end();
 });

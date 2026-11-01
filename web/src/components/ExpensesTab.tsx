@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api';
 import { date, money } from '../format';
 import type { Expense, Group, Member } from '../types';
-import { Avatar, Empty, ErrorBox, Spinner } from './ui';
+import { Avatar, DeletedItems, Empty, ErrorBox, Spinner } from './ui';
 import { ExpenseForm } from './ExpenseForm';
 
 interface Props {
@@ -15,14 +15,30 @@ interface Props {
 
 export function ExpensesTab({ group, members, currentUserId, version, onChanged }: Props) {
   const [expenses, setExpenses] = useState<Expense[] | null>(null);
+  const [deleted, setDeleted] = useState<Expense[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Expense | 'new' | null>(null);
 
   useEffect(() => {
-    api<{ expenses: Expense[] }>(`/groups/${group.id}/expenses`)
-      .then((r) => setExpenses(r.expenses))
+    Promise.all([
+      api<{ expenses: Expense[] }>(`/groups/${group.id}/expenses`),
+      api<{ expenses: Expense[] }>(`/groups/${group.id}/expenses/deleted`),
+    ])
+      .then(([active, removed]) => {
+        setExpenses(active.expenses);
+        setDeleted(removed.expenses);
+      })
       .catch((err) => setError(errorMessage(err)));
   }, [group.id, version]);
+
+  async function restore(e: Expense) {
+    try {
+      await api(`/groups/${group.id}/expenses/${e.id}/restore`, { method: 'POST' });
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
 
   const total = expenses?.reduce((s, e) => s + e.amount, 0) ?? 0;
 
@@ -76,6 +92,18 @@ export function ExpensesTab({ group, members, currentUserId, version, onChanged 
           })}
         </ul>
       )}
+      <DeletedItems
+        items={deleted}
+        label={(e) => (
+          <>
+            <div className="list-title">{e.description}</div>
+            <div className="muted small">
+              {date(e.spent_at)} · {money(e.amount, group.currency)}
+            </div>
+          </>
+        )}
+        onRestore={restore}
+      />
       {editing && (
         <ExpenseForm
           group={group}

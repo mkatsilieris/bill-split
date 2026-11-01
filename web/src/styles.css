@@ -666,6 +666,13 @@ input[type='radio'] {
 .danger-zone {
   border-color: var(--danger);
 }
+.deleted-items summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.deleted-items[open] summary {
+  margin-bottom: 8px;
+}
 .spinner-full {
   min-height: 60vh;
   display: flex;

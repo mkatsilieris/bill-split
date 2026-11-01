@@ -152,8 +152,7 @@ export function MembersTab({ group, members, myRole, currentUserId, onChanged, o
   }
 
   async function deleteGroup() {
-    if (!confirm(`Να διαγραφεί οριστικά η ομάδα «${group.name}» με όλα τα έξοδά της;`)) return;
-    if (!confirm('Είστε σίγουροι; Η ενέργεια δεν αναιρείται.')) return;
+    if (!confirm(`Να διαγραφεί η ομάδα «${group.name}» για όλα τα μέλη;`)) return;
     try {
       await api(`/groups/${group.id}`, { method: 'DELETE' });
       onLeft();
@@ -306,7 +305,10 @@ export function MembersTab({ group, members, myRole, currentUserId, onChanged, o
       {isOwner && (
         <section className="card stack danger-zone">
           <h2>Διαγραφή ομάδας</h2>
-          <p className="muted small">Διαγράφει την ομάδα, τα έξοδα και τις πληρωμές της για όλα τα μέλη.</p>
+          <p className="muted small">
+            Η ομάδα εξαφανίζεται για όλα τα μέλη. Ο διαχειριστής μπορεί να την επαναφέρει με όλα τα στοιχεία της από τη λίστα
+            «Οι ομάδες μου».
+          </p>
           <button className="btn btn-danger" onClick={deleteGroup}>
             Διαγραφή ομάδας
           </button>
