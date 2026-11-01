@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import { config } from './config.js';
+import { accessEnabled } from './access.js';
+import { allowlistEnabled } from './cloudflare.js';
+import { mailConfigured } from './mail.js';
 import { migrate, waitForDb } from './db.js';
 import { errorHandler } from './errors.js';
 import { log, requestLogger } from './log.js';
@@ -34,6 +37,16 @@ async function main() {
   await migrate();
   app.listen(config.port, () => {
     log.info({ port: config.port, env: config.nodeEnv, logLevel: config.logLevel }, 'api listening');
+    // One line that answers "is it configured?" without reading .env on the server.
+    log.info(
+      {
+        cloudflareAccessSso: accessEnabled,
+        allowlistAdmin: allowlistEnabled,
+        smtp: mailConfigured,
+        admins: config.adminEmails.length,
+      },
+      'features',
+    );
   });
 }
 
