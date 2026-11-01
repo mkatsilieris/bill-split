@@ -65,6 +65,51 @@ docker compose exec db pg_dump -U billsplit billsplit > backup.sql   # backup
 docker compose down               # στοπ (τα δεδομένα μένουν στο volume pgdata)
 ```
 
+## Αυτόματο deploy από τον υπολογιστή σου
+
+Ένας ξεχωριστός χρήστης `deploy` στο Pi, με SSH κλειδί που επιτρέπεται να τρέξει **μόνο**
+`deploy`, `status`, `logs` και `restart` (όχι shell).
+
+**1. Κλειδί και SSH alias (μία φορά, στον υπολογιστή σου)**
+
+```powershell
+ssh-keygen -t ed25519 -f $HOME\.ssh\billsplit_deploy -C billsplit-deploy   # Enter δύο φορές, χωρίς passphrase
+notepad $HOME\.ssh\config
+```
+
+Πρόσθεσε στο `config` (άλλαξε το `HostName` αν το Pi σου λέγεται αλλιώς):
+
+```
+Host billsplit-pi
+    HostName ninblack-pi.local
+    User deploy
+    IdentityFile ~/.ssh/billsplit_deploy
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+```
+
+**2. Χρήστης deploy στο Pi (μία φορά)**
+
+```powershell
+scp scripts\pi-setup-deploy.sh $HOME\.ssh\billsplit_deploy.pub <user>@ninblack-pi.local:~/
+ssh -t <user>@ninblack-pi.local "sudo sh ~/pi-setup-deploy.sh ~/billsplit_deploy.pub"
+```
+
+Το script φτιάχνει τον χρήστη, τον φάκελο `/home/deploy/bill-split` και ένα `.env` με τυχαία μυστικά
+(ή αντιγράφει το `~/bill-split/.env` αν υπάρχει ήδη χειροκίνητη εγκατάσταση).
+
+**3. Κάθε φορά που θες να ανεβάσεις το τελευταίο commit**
+
+```powershell
+.\scripts\deploy.ps1          # Windows PowerShell
+scripts/deploy.sh             # Git Bash / Linux / macOS
+ssh billsplit-pi status       # κατάσταση containers
+ssh billsplit-pi logs api     # logs (db | api | web)
+```
+
+Ανεβαίνει μόνο ό,τι έχει γίνει commit. Το `.env` στο Pi δεν αλλάζει ποτέ από το deploy.
+Όποιος έχει το κλειδί μπορεί να ανεβάσει κώδικα στο Pi, οπότε κράτα το ιδιωτικό.
+
 ## Ανάπτυξη (χωρίς docker)
 
 ```bash
