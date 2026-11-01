@@ -1,0 +1,48 @@
+# Bill Split - family expense sharing
+# Usage:  cp .env.example .env  &&  docker compose up -d --build
+# Then open http://<host>:8080
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-billsplit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billsplit}
+      POSTGRES_DB: ${POSTGRES_DB:-billsplit}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-billsplit} -d ${POSTGRES_DB:-billsplit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-billsplit}:${POSTGRES_PASSWORD:-billsplit}@db:5432/${POSTGRES_DB:-billsplit}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-Bill Split <no-reply@example.com>}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

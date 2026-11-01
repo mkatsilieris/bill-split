@@ -1,0 +1,28 @@
+import nodemailer from 'nodemailer';
+import { config } from './config.js';
+
+const smtpConfigured = Boolean(config.smtp.host);
+
+const transport = smtpConfigured
+  ? nodemailer.createTransport({
+      host: config.smtp.host,
+      port: config.smtp.port,
+      secure: config.smtp.port === 465,
+      auth: config.smtp.user ? { user: config.smtp.user, pass: config.smtp.pass } : undefined,
+    })
+  : null;
+
+export async function sendPasswordReset(to: string, resetUrl: string): Promise<void> {
+  const subject = 'Επαναφορά κωδικού - Bill Split';
+  const text =
+    'Λάβαμε αίτημα επαναφοράς κωδικού για τον λογαριασμό σας.\n\n' +
+    `Πατήστε τον παρακάτω σύνδεσμο (ισχύει για 1 ώρα):\n${resetUrl}\n\n` +
+    'Αν δεν το ζητήσατε εσείς, αγνοήστε αυτό το email.';
+
+  if (!transport) {
+    console.log(`\n[mail] SMTP not configured. Password reset link for ${to}:\n  ${resetUrl}\n`);
+    return;
+  }
+  await transport.sendMail({ from: config.smtp.from, to, subject, text });
+  console.log(`[mail] password reset sent to ${to}`);
+}
