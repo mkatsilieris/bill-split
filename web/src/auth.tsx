@@ -12,16 +12,41 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+// Set when the session was opened through Cloudflare Access, so that logging out also ends the
+// Access session (otherwise the next page load would silently sign the person in again).
+const VIA_ACCESS_KEY = 'billsplit.viaAccess';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(() => Boolean(getToken()));
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!getToken()) return;
-    api<{ user: User }>('/auth/me')
-      .then((r) => setUser(r.user))
-      .catch(() => setToken(null))
-      .finally(() => setLoading(false));
+    async function boot() {
+      if (getToken()) {
+        try {
+          const r = await api<{ user: User }>('/auth/me');
+          setUser(r.user);
+          return;
+        } catch {
+          setToken(null);
+        }
+      }
+      // No usable token: behind Cloudflare Access the API can sign us in from the Access assertion.
+      // Anywhere else this fails quietly and the normal login form is shown.
+      try {
+        const r = await api<{ token: string; user: User }>('/auth/access', { method: 'POST' });
+        setToken(r.token);
+        try {
+          localStorage.setItem(VIA_ACCESS_KEY, '1');
+        } catch {
+          /* storage unavailable */
+        }
+        setUser(r.user);
+      } catch {
+        /* not behind Access, or not allowed: show the login form */
+      }
+    }
+    boot().finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -38,6 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
+    let viaAccess = false;
+    try {
+      viaAccess = localStorage.getItem(VIA_ACCESS_KEY) === '1';
+      localStorage.removeItem(VIA_ACCESS_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+    if (viaAccess) window.location.assign('/cdn-cgi/access/logout');
   }, []);
 
   const value = useMemo(() => ({ user, loading, login, logout, setUser }), [user, loading, login, logout]);

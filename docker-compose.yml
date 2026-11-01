@@ -23,6 +23,9 @@ services:
   api:
     build: ./api
     restart: unless-stopped
+    # Cloudflare Access SSO settings (not secret, see README). Empty the file to disable.
+    env_file:
+      - cloudflare-access.env
     environment:
       NODE_ENV: production
       PORT: 4000

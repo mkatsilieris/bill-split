@@ -4,9 +4,10 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { requireAuth, signToken } from '../auth.js';
-import { HttpError, badRequest } from '../errors.js';
+import { HttpError, badRequest, notFound } from '../errors.js';
 import { sendPasswordReset } from '../mail.js';
 import { config } from '../config.js';
+import { accessEmail, accessEnabled, nameFromEmail } from '../access.js';
 
 export const authRouter = Router();
 
@@ -46,6 +47,32 @@ authRouter.post('/login', async (req, res) => {
   const user = rows[0];
   const ok = user ? await bcrypt.compare(body.password, user.password_hash) : false;
   if (!user || !ok) throw new HttpError(401, 'Λάθος email ή κωδικός');
+  res.json({ token: signToken(user), user: publicUser(user) });
+});
+
+/**
+ * Single sign-on through Cloudflare Access. The browser never sends credentials: Access already
+ * authenticated the person and attached a signed assertion with their e-mail. First visit creates
+ * the account (with a random, unusable password; "forgot password" sets one if ever needed).
+ */
+authRouter.post('/access', async (req, res) => {
+  if (!accessEnabled) throw notFound('Το Cloudflare Access δεν είναι ρυθμισμένο');
+  const email = await accessEmail(req);
+  if (!email) throw new HttpError(401, 'Δεν υπάρχει έγκυρη σύνδεση Cloudflare Access');
+
+  let user = (await pool.query<UserRow>('SELECT * FROM users WHERE email = $1', [email])).rows[0];
+  if (!user) {
+    const hash = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
+    user = (
+      await pool.query<UserRow>(
+        `INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+         RETURNING *`,
+        [email, nameFromEmail(email), hash],
+      )
+    ).rows[0];
+    console.log(`[access] created account for ${email}`);
+  }
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 

@@ -126,6 +126,7 @@ emails της allowlist περνούν. Όλα αυτά είναι στο δωρ
 | Zero Trust > Networks > Tunnels | Tunnel `bill-split`, public hostname `bills.ninblack.com` → `http://web:80` |
 | DNS | `CNAME bills` → `<tunnel-id>.cfargotunnel.com` (proxied) |
 | Zero Trust > Access > Applications | Εφαρμογή `Bill Split`, policy `Family` (Allow, Emails: …) |
+| Zero Trust > Settings > Authentication | Login methods: One-time PIN (email) |
 
 **Στο Pi** (μία φορά) πρόσθεσε στο `/home/deploy/bill-split/.env`:
 
@@ -136,6 +137,14 @@ TUNNEL_TOKEN=<το token από Zero Trust > Networks > Tunnels > bill-split > C
 ```
 
 και μετά `scripts/deploy.ps1` (ή `ssh billsplit-pi restart` αν δεν άλλαξε ο κώδικας).
+
+**Ένα login αντί για δύο (SSO).** Όταν ο χρήστης έχει περάσει το Access, το Cloudflare βάζει σε κάθε
+request ένα υπογεγραμμένο JWT (header `Cf-Access-Jwt-Assertion`). Το API το επαληθεύει με τα δημόσια
+κλειδιά του team (`ACCESS_TEAM_DOMAIN`) και το application audience (`ACCESS_AUD`, αρχείο
+`cloudflare-access.env`) και συνδέει αυτόματα τον χρήστη με το email του, δημιουργώντας λογαριασμό
+την πρώτη φορά. Από το τοπικό δίκτυο, που δεν περνά από Cloudflare, εμφανίζεται η κανονική φόρμα.
+Για να απενεργοποιηθεί (π.χ. αν καταργηθεί το Cloudflare) αρκεί να αδειάσουν οι δύο τιμές στο
+`cloudflare-access.env`. Η «Αποσύνδεση» μέσα από το Access τερματίζει και το Access session.
 
 **Προσθήκη / αφαίρεση μέλους στην allowlist**
 
