@@ -53,7 +53,7 @@ export default function Login() {
         <div className="auth-links">
           <Link to="/forgot">Ξέχασα τον κωδικό μου</Link>
           <span>
-            Δεν έχετε λογαριασμό? <Link to="/signup">Εγγραφή</Link>
+            Δεν έχετε λογαριασμό; <Link to="/signup">Εγγραφή</Link>
           </span>
         </div>
       </form>

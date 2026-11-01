@@ -73,7 +73,7 @@ export default function Signup() {
         </button>
         <div className="auth-links">
           <span>
-            Έχετε ήδη λογαριασμό? <Link to="/login">Σύνδεση</Link>
+            Έχετε ήδη λογαριασμό; <Link to="/login">Σύνδεση</Link>
           </span>
         </div>
       </form>
