@@ -178,6 +178,13 @@ request ένα υπογεγραμμένο JWT (header `Cf-Access-Jwt-Assertion`)
 
 **Προσθήκη / αφαίρεση μέλους στην allowlist**
 
+- Μέσα από την εφαρμογή: οι διαχειριστές (`ADMIN_EMAILS` στο `cloudflare-access.env`) έχουν στο
+  Προφίλ τους τη σελίδα «Πρόσβαση από το Internet». Προσθήκη email = μπαίνει στην allowlist και
+  λαμβάνει email πρόσκλησης (αν υπάρχει SMTP, αλλιώς εμφανίζεται το μήνυμα για αποστολή με το χέρι).
+  Αφαίρεση = βγαίνει από την allowlist και, αν το token το επιτρέπει, τερματίζεται η σύνδεσή του.
+  Χρειάζεται `CF_API_TOKEN` στο `.env` του server: API token με `Access: Apps and Policies: Edit`
+  και `Access: Organizations, Identity Providers, and Groups: Edit` (το δεύτερο μόνο για τον άμεσο
+  τερματισμό σύνδεσης), περιορισμένο στον λογαριασμό, χωρίς λήξη.
 - Dashboard: Zero Trust > Access > Applications > Bill Split > Policies > Family > Include > Emails.
 - Ή με το script (χρειάζεται API token με `Access: Apps and Policies: Edit`):
 

@@ -14,6 +14,19 @@ export const config = {
     teamDomain: (env.ACCESS_TEAM_DOMAIN ?? '').replace(/^https?:\/\//, '').replace(/\/$/, ''),
     aud: env.ACCESS_AUD ?? '',
   },
+  // App administrators (comma separated e-mails): may edit the Cloudflare Access allowlist in the app.
+  adminEmails: (env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+  // Cloudflare API access for the allowlist. The token is the only secret (CF_API_TOKEN in .env);
+  // the ids are in cloudflare-access.env.
+  cloudflare: {
+    apiToken: env.CF_API_TOKEN ?? '',
+    accountId: env.ACCESS_ACCOUNT_ID ?? '',
+    appId: env.ACCESS_APP_ID ?? '',
+    policyId: env.ACCESS_POLICY_ID ?? '',
+  },
   smtp: {
     host: env.SMTP_HOST ?? '',
     port: Number(env.SMTP_PORT ?? 587),

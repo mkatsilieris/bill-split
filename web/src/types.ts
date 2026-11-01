@@ -2,6 +2,8 @@ export interface User {
   id: number;
   email: string;
   name: string;
+  /** May manage the Internet allowlist (Cloudflare Access) from the app. */
+  is_admin: boolean;
 }
 
 export type SplitMode = 'equal' | 'percentage';

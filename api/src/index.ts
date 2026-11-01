@@ -6,6 +6,7 @@ import { errorHandler } from './errors.js';
 import { log, requestLogger } from './log.js';
 import { authRouter } from './routes/auth.js';
 import { groupsRouter } from './routes/groups.js';
+import { adminRouter } from './routes/admin.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -20,6 +21,7 @@ app.use(express.json({ limit: '200kb' }));
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/auth', authRouter);
 app.use('/api/groups', groupsRouter);
+app.use('/api/admin', adminRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 app.use(errorHandler);

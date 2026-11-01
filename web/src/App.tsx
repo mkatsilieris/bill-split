@@ -10,12 +10,19 @@ import Groups from './pages/Groups';
 import GroupDetail from './pages/GroupDetail';
 import Join from './pages/Join';
 import Profile from './pages/Profile';
+import Admin from './pages/Admin';
 
 function Protected({ children }: { children: JSX.Element }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <Spinner full />;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  return children;
+}
+
+function AdminOnly({ children }: { children: JSX.Element }) {
+  const { user } = useAuth();
+  if (!user?.is_admin) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -29,15 +36,57 @@ function PublicOnly({ children }: { children: JSX.Element }) {
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
-      <Route path="/signup" element={<PublicOnly><Signup /></PublicOnly>} />
-      <Route path="/forgot" element={<PublicOnly><Forgot /></PublicOnly>} />
+      <Route
+        path="/login"
+        element={
+          <PublicOnly>
+            <Login />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/signup"
+        element={
+          <PublicOnly>
+            <Signup />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/forgot"
+        element={
+          <PublicOnly>
+            <Forgot />
+          </PublicOnly>
+        }
+      />
       <Route path="/reset" element={<Reset />} />
-      <Route path="/join" element={<Protected><Join /></Protected>} />
-      <Route element={<Protected><Layout /></Protected>}>
+      <Route
+        path="/join"
+        element={
+          <Protected>
+            <Join />
+          </Protected>
+        }
+      />
+      <Route
+        element={
+          <Protected>
+            <Layout />
+          </Protected>
+        }
+      >
         <Route path="/" element={<Groups />} />
         <Route path="/groups/:id" element={<GroupDetail />} />
         <Route path="/profile" element={<Profile />} />
+        <Route
+          path="/admin"
+          element={
+            <AdminOnly>
+              <Admin />
+            </AdminOnly>
+          }
+        />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

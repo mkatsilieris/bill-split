@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { pool } from '../db.js';
-import { requireAuth, signToken } from '../auth.js';
+import { isAdmin, requireAuth, signToken } from '../auth.js';
 import { HttpError, badRequest, notFound } from '../errors.js';
 import { sendPasswordReset } from '../mail.js';
 import { config } from '../config.js';
@@ -22,7 +22,7 @@ interface UserRow {
   created_at: string;
 }
 
-const publicUser = (u: UserRow) => ({ id: u.id, email: u.email, name: u.name });
+const publicUser = (u: UserRow) => ({ id: u.id, email: u.email, name: u.name, is_admin: isAdmin(u.email) });
 
 authRouter.post('/signup', async (req, res) => {
   const body = z

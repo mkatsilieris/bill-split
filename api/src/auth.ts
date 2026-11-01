@@ -15,6 +15,19 @@ declare global {
   }
 }
 
+/** Admins are configured by e-mail (ADMIN_EMAILS); they manage who may reach the app from the Internet. */
+export function isAdmin(email: string): boolean {
+  return config.adminEmails.includes(email.trim().toLowerCase());
+}
+
+export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (!req.user || !isAdmin(req.user.email)) {
+    res.status(403).json({ error: 'Μόνο για διαχειριστές' });
+    return;
+  }
+  next();
+}
+
 export function signToken(user: AuthUser): string {
   return jwt.sign({ sub: String(user.id), email: user.email }, config.jwtSecret, {
     expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'],
