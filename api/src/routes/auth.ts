@@ -38,6 +38,7 @@ authRouter.post('/signup', async (req, res) => {
     [body.email, body.name, hash],
   );
   const user = rows[0];
+  req.log.info({ user: user.id, email: user.email }, 'account created');
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 
@@ -46,7 +47,11 @@ authRouter.post('/login', async (req, res) => {
   const { rows } = await pool.query<UserRow>('SELECT * FROM users WHERE email = $1', [body.email]);
   const user = rows[0];
   const ok = user ? await bcrypt.compare(body.password, user.password_hash) : false;
-  if (!user || !ok) throw new HttpError(401, 'Λάθος email ή κωδικός');
+  if (!user || !ok) {
+    req.log.warn({ email: body.email, ip: req.ip, knownAccount: Boolean(user) }, 'login failed');
+    throw new HttpError(401, 'Λάθος email ή κωδικός');
+  }
+  req.log.info({ user: user.id, email: user.email }, 'login ok');
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 
@@ -71,8 +76,9 @@ authRouter.post('/access', async (req, res) => {
         [email, nameFromEmail(email), hash],
       )
     ).rows[0];
-    console.log(`[access] created account for ${email}`);
+    req.log.info({ user: user.id, email }, 'account created via cloudflare access');
   }
+  req.log.info({ user: user.id, email }, 'login ok via cloudflare access');
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 
@@ -87,11 +93,14 @@ authRouter.post('/forgot', async (req, res) => {
       [token, user.id],
     );
     const resetUrl = `${config.appUrl}/reset?token=${token}`;
+    req.log.info({ user: user.id, email: user.email }, 'password reset requested');
     try {
       await sendPasswordReset(user.email, resetUrl);
     } catch (err) {
-      console.error('[mail] failed to send reset email:', err);
+      req.log.error({ err, user: user.id }, 'failed to send password reset e-mail');
     }
+  } else {
+    req.log.warn({ email: body.email, ip: req.ip }, 'password reset requested for unknown e-mail');
   }
   // Always answer the same so the endpoint cannot be used to discover accounts.
   res.json({ ok: true });
@@ -109,6 +118,7 @@ authRouter.post('/reset', async (req, res) => {
   const hash = await bcrypt.hash(body.password, 10);
   await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, rows[0].user_id]);
   await pool.query('UPDATE password_resets SET used_at = now() WHERE token = $1', [body.token]);
+  req.log.info({ user: rows[0].user_id }, 'password reset completed');
   res.json({ ok: true });
 });
 
@@ -139,6 +149,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     if (!ok) throw badRequest('Ο τρέχων κωδικός είναι λάθος');
     const hash = await bcrypt.hash(body.newPassword, 10);
     await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, user.id]);
+    req.log.info({ user: user.id }, 'password changed');
   }
   const updated = await pool.query<UserRow>('SELECT * FROM users WHERE id = $1', [user.id]);
   res.json({ user: publicUser(updated.rows[0]) });

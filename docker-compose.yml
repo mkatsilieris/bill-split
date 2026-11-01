@@ -4,10 +4,19 @@
 # Internet access goes through a Cloudflare Tunnel (see README):
 #   set COMPOSE_PROFILES=internet and TUNNEL_TOKEN in .env.
 
+# Every container logs to stdout; docker keeps the lines and rotates them (5 x 10 MB per service).
+#   docker compose logs -f api        (see README > Logs)
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-billsplit}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billsplit}
@@ -23,12 +32,14 @@ services:
   api:
     build: ./api
     restart: unless-stopped
+    logging: *logging
     # Cloudflare Access SSO settings (not secret, see README). Empty the file to disable.
     env_file:
       - cloudflare-access.env
     environment:
       NODE_ENV: production
       PORT: 4000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: postgres://${POSTGRES_USER:-billsplit}:${POSTGRES_PASSWORD:-billsplit}@db:5432/${POSTGRES_DB:-billsplit}
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
       APP_URL: ${APP_URL:-http://localhost:8080}
@@ -44,6 +55,7 @@ services:
   web:
     build: ./web
     restart: unless-stopped
+    logging: *logging
     ports:
       - "${WEB_PORT:-8080}:80"
     depends_on:
@@ -55,6 +67,7 @@ services:
     image: cloudflare/cloudflared:latest
     profiles: [internet]
     restart: unless-stopped
+    logging: *logging
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}

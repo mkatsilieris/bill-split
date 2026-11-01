@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { config } from './config.js';
+import { log } from './log.js';
 
 const smtpConfigured = Boolean(config.smtp.host);
 
@@ -20,9 +21,9 @@ export async function sendPasswordReset(to: string, resetUrl: string): Promise<v
     'Αν δεν το ζητήσατε εσείς, αγνοήστε αυτό το email.';
 
   if (!transport) {
-    console.log(`\n[mail] SMTP not configured. Password reset link for ${to}:\n  ${resetUrl}\n`);
+    log.warn({ email: to, resetUrl }, 'SMTP not configured - the password reset link is only in this log line');
     return;
   }
   await transport.sendMail({ from: config.smtp.from, to, subject, text });
-  console.log(`[mail] password reset sent to ${to}`);
+  log.info({ email: to }, 'password reset e-mail sent');
 }

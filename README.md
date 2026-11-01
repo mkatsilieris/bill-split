@@ -61,11 +61,41 @@ docker compose logs -f api
 ### Χρήσιμες εντολές
 
 ```bash
-docker compose logs -f            # logs
+docker compose logs -f            # logs (βλ. παρακάτω)
 docker compose pull && docker compose up -d --build   # ενημέρωση μετά από git pull
 docker compose exec db pg_dump -U billsplit billsplit > backup.sql   # backup
 docker compose down               # στοπ (τα δεδομένα μένουν στο volume pgdata)
 ```
+
+### Logs
+
+Όλα τα containers γράφουν στο stdout και το docker τα κρατάει με rotation (5 αρχεία x 10 MB ανά
+service). Οι εντολές τρέχουν από τον φάκελο της εφαρμογής (στο Pi: `/home/deploy/bill-split`), ή από
+οπουδήποτε με `docker compose -p bill-split ...`.
+
+```bash
+docker compose logs -f api                 # API, ζωντανά
+docker compose logs --since 1h api         # η τελευταία ώρα
+docker compose logs --tail 200 web         # nginx access log (IP, request, status, χρόνος, reqId)
+docker compose logs -f db tunnel           # Postgres / Cloudflare Tunnel
+```
+
+Το API γράφει μία γραμμή JSON ανά αίτημα: ποιος χρήστης (`user`), από πού (`ip`), τι (`method`, `url`),
+με τι αποτέλεσμα (`status`, `ms`) και, στα σφάλματα, γιατί (`err`). Ξεχωριστές γραμμές υπάρχουν για
+είσοδο/αποτυχημένη είσοδο, δημιουργία λογαριασμού, επαναφορά και αλλαγή κωδικού, καθώς και για κάθε
+απρόβλεπτο σφάλμα με το πλήρες stack. Κάθε απάντηση έχει header `X-Request-Id`, που εμφανίζεται ως
+`reqId` και στα δύο logs (API και nginx), για να ταιριάζεις μια αναφορά χρήστη με τη γραμμή της.
+
+```bash
+# Παραδείγματα φιλτραρίσματος (χρειάζεται το jq: sudo apt install jq)
+docker compose logs --no-log-prefix api | jq -c 'select(.level=="warn" or .level=="error")'
+docker compose logs --no-log-prefix api | jq -c 'select(.user==3)'                 # τι έκανε ο χρήστης 3
+docker compose logs --no-log-prefix api | jq -c 'select(.msg=="login failed")'
+docker compose logs --no-log-prefix api | jq -c 'select(.status>=500)'
+```
+
+Επίπεδο λεπτομέρειας: `LOG_LEVEL=debug|info|warn|error` στο `.env` (προεπιλογή `info`). Οι κωδικοί,
+τα tokens και το header Authorization δεν γράφονται ποτέ στα logs.
 
 ## Αυτόματο deploy από τον υπολογιστή σου
 
@@ -106,7 +136,7 @@ ssh -t <user>@ninblack-pi.local "sudo sh ~/pi-setup-deploy.sh ~/billsplit_deploy
 .\scripts\deploy.ps1          # Windows PowerShell
 scripts/deploy.sh             # Git Bash / Linux / macOS
 ssh billsplit-pi status       # κατάσταση containers
-ssh billsplit-pi logs api     # logs (db | api | web)
+ssh billsplit-pi logs api     # τελευταίες 200 γραμμές (db | api | web | tunnel)
 ```
 
 Ανεβαίνει μόνο ό,τι έχει γίνει commit. Το `.env` στο Pi δεν αλλάζει ποτέ από το deploy.

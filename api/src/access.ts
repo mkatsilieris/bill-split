@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { config } from './config.js';
+import { log } from './log.js';
 
 /**
  * Cloudflare Access single sign-on.
@@ -26,7 +27,7 @@ export async function accessEmail(req: Request): Promise<string | null> {
     const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
     return email || null;
   } catch (err) {
-    console.warn('[access] rejected assertion:', (err as Error).message);
+    (req.log ?? log).warn({ reason: (err as Error).message }, 'cloudflare access assertion rejected');
     return null;
   }
 }

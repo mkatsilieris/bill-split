@@ -3,6 +3,7 @@ const env = process.env;
 export const config = {
   port: Number(env.PORT ?? 4000),
   nodeEnv: env.NODE_ENV ?? 'development',
+  logLevel: env.LOG_LEVEL ?? 'info',
   databaseUrl:
     env.DATABASE_URL ?? 'postgres://billsplit:billsplit@localhost:5432/billsplit',
   jwtSecret: env.JWT_SECRET ?? 'dev-secret-change-me',
@@ -22,6 +23,3 @@ export const config = {
   },
 };
 
-if (config.nodeEnv === 'production' && config.jwtSecret === 'dev-secret-change-me') {
-  console.warn('[config] WARNING: JWT_SECRET is using the default value. Set it in .env!');
-}
