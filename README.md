@@ -140,6 +140,9 @@ ssh billsplit-pi logs api     # τελευταίες 200 γραμμές (db | ap
 ```
 
 Ανεβαίνει μόνο ό,τι έχει γίνει commit. Το `.env` στο Pi δεν αλλάζει ποτέ από το deploy.
+Με `-Overlay <φάκελος>` (PowerShell) ή `scripts/deploy.sh <φάκελος>` (sh) τα αρχεία του φακέλου αντιγράφονται πάνω
+στο commit πριν ανέβει, για πράγματα που δεν ανήκουν στο git, π.χ. ένα `docker-compose.override.yml` με το CSV μιας
+εισαγωγής από Splitwise (βλ. παρακάτω). Το επόμενο απλό deploy τα αφαιρεί.
 Όποιος έχει το κλειδί μπορεί να ανεβάσει κώδικα στο Pi, οπότε κράτα το ιδιωτικό.
 
 ## Πρόσβαση από το Internet (Cloudflare Tunnel + Access)
