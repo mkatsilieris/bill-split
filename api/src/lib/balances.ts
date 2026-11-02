@@ -1,7 +1,10 @@
 /**
  * Balance computation for one group. Everything is in integer cents.
  *
- *   net(user) = paid(user) - owed(user) + settlementsPaid(user) - settlementsReceived(user)
+ *   net(user) = paid(user) - owed(user) + settlementsPaid(user) - settlementsReceived(user) + adjusted(user)
+ *
+ *   adjusted(user): debt changes (manual corrections, debts moved from / to another group).
+ *   A change "debtor owes creditor X more" is -X for the debtor and +X for the creditor.
  *
  *   net > 0  → the group owes this user
  *   net < 0  → this user owes the group
@@ -20,12 +23,20 @@ export interface SettlementRow {
   amountCents: number;
 }
 
+export interface DebtChangeRow {
+  debtor: number;
+  creditor: number;
+  /** positive = the debtor owes the creditor this much more, negative = less */
+  amountCents: number;
+}
+
 export interface Balance {
   userId: number;
   paidCents: number;
   owedCents: number;
   settledOutCents: number;
   settledInCents: number;
+  adjustedCents: number;
   netCents: number;
 }
 
@@ -39,12 +50,13 @@ export function computeBalances(
   memberIds: number[],
   shares: ShareRow[],
   settlements: SettlementRow[],
+  debtChanges: DebtChangeRow[] = [],
 ): Balance[] {
   const byUser = new Map<number, Balance>();
   const get = (id: number): Balance => {
     let b = byUser.get(id);
     if (!b) {
-      b = { userId: id, paidCents: 0, owedCents: 0, settledOutCents: 0, settledInCents: 0, netCents: 0 };
+      b = { userId: id, paidCents: 0, owedCents: 0, settledOutCents: 0, settledInCents: 0, adjustedCents: 0, netCents: 0 };
       byUser.set(id, b);
     }
     return b;
@@ -59,8 +71,12 @@ export function computeBalances(
     get(s.fromUser).settledOutCents += s.amountCents;
     get(s.toUser).settledInCents += s.amountCents;
   }
+  for (const c of debtChanges) {
+    get(c.debtor).adjustedCents -= c.amountCents;
+    get(c.creditor).adjustedCents += c.amountCents;
+  }
   for (const b of byUser.values()) {
-    b.netCents = b.paidCents - b.owedCents + b.settledOutCents - b.settledInCents;
+    b.netCents = b.paidCents - b.owedCents + b.settledOutCents - b.settledInCents + b.adjustedCents;
   }
   return [...byUser.values()];
 }

@@ -36,3 +36,23 @@ export function initials(name: string): string {
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('');
 }
+
+/** 'YYYY-MM' → 'Νοέμβριος 2026' */
+export function monthLabel(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('el-GR', { month: 'long', year: 'numeric' });
+}
+
+/** 'YYYY-MM' → 'Νοε' (with the year when it is not the current one: 'Νοε 25') */
+export function monthShort(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  const label = new Date(y, m - 1, 1).toLocaleDateString('el-GR', { month: 'short' }).replace('.', '');
+  return y === new Date().getFullYear() ? label : `${label} ${String(y).slice(2)}`;
+}
+
+/** Signed percentage change, e.g. '+12%' or '−8%'; null when there is no base to compare with. */
+export function deltaPercent(current: number, previous: number): string | null {
+  if (previous <= 0) return null;
+  const pct = Math.round(((current - previous) / previous) * 100);
+  return `${pct > 0 ? '+' : pct < 0 ? '−' : ''}${Math.abs(pct)}%`;
+}

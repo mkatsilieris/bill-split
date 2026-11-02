@@ -72,6 +72,8 @@ export interface Balance {
   owed: number;
   settled_out: number;
   settled_in: number;
+  /** net effect of debt changes (corrections, transfers) */
+  adjusted: number;
   net: number;
 }
 
@@ -94,4 +96,41 @@ export interface Settlement {
   note: string | null;
   settled_at: string;
   created_at: string;
+}
+
+export type DebtChangeKind = 'adjustment' | 'transfer_out' | 'transfer_in';
+
+/** A change of who owes whom without an expense or a payment (correction or move to another group). */
+export interface DebtChange {
+  id: number;
+  group_id: number;
+  debtor: number;
+  debtor_name: string;
+  creditor: number;
+  creditor_name: string;
+  amount: number;
+  /** increase = the debtor owes the creditor `amount` more */
+  direction: 'increase' | 'decrease';
+  kind: DebtChangeKind;
+  counterpart_id: number | null;
+  counterpart_group_id: number | null;
+  counterpart_group_name: string | null;
+  note: string | null;
+  changed_at: string;
+  created_at: string;
+}
+
+export interface TransferTarget {
+  id: number;
+  name: string;
+  currency: string;
+}
+
+/** Totals of one month ('YYYY-MM') of a group, as GET /groups/:id/expenses/months returns them. */
+export interface MonthStats {
+  month: string;
+  count: number;
+  total: number;
+  by_category: { category: string | null; count: number; total: number }[];
+  by_member: { user_id: number; paid: number; share: number }[];
 }

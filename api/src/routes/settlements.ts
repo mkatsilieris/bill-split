@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { badRequest, notFound } from '../errors.js';
-import { computeBalances, simplifyDebts, type SettlementRow, type ShareRow } from '../lib/balances.js';
+import { computeBalances, simplifyDebts, type DebtChangeRow, type SettlementRow, type ShareRow } from '../lib/balances.js';
 import { fromCents, toCents } from '../lib/money.js';
 import { loadMembers, parseId, requireMember } from '../lib/membership.js';
 
@@ -24,6 +24,10 @@ settlementsRouter.get('/balances', async (req, res) => {
     'SELECT from_user, to_user, amount FROM settlements WHERE group_id = $1 AND deleted_at IS NULL',
     [groupId],
   );
+  const changeRows = await pool.query<{ debtor: number; creditor: number; amount: number; direction: 'increase' | 'decrease' }>(
+    'SELECT debtor, creditor, amount, direction FROM debt_changes WHERE group_id = $1 AND deleted_at IS NULL',
+    [groupId],
+  );
 
   const shares: ShareRow[] = shareRows.rows.map((r) => ({
     expenseId: r.expense_id,
@@ -37,10 +41,17 @@ settlementsRouter.get('/balances', async (req, res) => {
     amountCents: toCents(r.amount),
   }));
 
+  const debtChanges: DebtChangeRow[] = changeRows.rows.map((r) => ({
+    debtor: r.debtor,
+    creditor: r.creditor,
+    amountCents: r.direction === 'increase' ? toCents(r.amount) : -toCents(r.amount),
+  }));
+
   const balances = computeBalances(
     members.map((m) => m.user_id),
     shares,
     settlements,
+    debtChanges,
   );
   const transfers = simplifyDebts(balances);
 
@@ -63,6 +74,7 @@ settlementsRouter.get('/balances', async (req, res) => {
       owed: fromCents(b.owedCents),
       settled_out: fromCents(b.settledOutCents),
       settled_in: fromCents(b.settledInCents),
+      adjusted: fromCents(b.adjustedCents),
       net: fromCents(b.netCents),
     })),
     suggestions: transfers.map((t) => ({

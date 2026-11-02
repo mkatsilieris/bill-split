@@ -91,6 +91,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS imports_file_idx ON imports(group_id, file_sha
 ALTER TABLE expenses    ADD COLUMN IF NOT EXISTS import_id INT REFERENCES imports(id);
 ALTER TABLE settlements ADD COLUMN IF NOT EXISTS import_id INT REFERENCES imports(id);
 
+-- Changes of who owes whom that are neither an expense nor money changing hands: a correction
+-- ('adjustment'), or a debt moved to another group ('transfer_out' here and 'transfer_in' in the
+-- other group, the two rows pointing at each other through counterpart_id).
+-- Effect on balances: direction 'increase' = debtor owes creditor `amount` more, 'decrease' = less.
+CREATE TABLE IF NOT EXISTS debt_changes (
+  id             SERIAL PRIMARY KEY,
+  group_id       INT NOT NULL REFERENCES groups(id),
+  debtor         INT NOT NULL REFERENCES users(id),
+  creditor       INT NOT NULL REFERENCES users(id),
+  amount         NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+  direction      TEXT NOT NULL CHECK (direction IN ('increase', 'decrease')),
+  kind           TEXT NOT NULL CHECK (kind IN ('adjustment', 'transfer_out', 'transfer_in')),
+  counterpart_id INT REFERENCES debt_changes(id),
+  note           TEXT,
+  changed_at     DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_by     INT NOT NULL REFERENCES users(id),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at     TIMESTAMPTZ,
+  deleted_by     INT REFERENCES users(id),
+  CHECK (debtor <> creditor)
+);
+CREATE INDEX IF NOT EXISTS debt_changes_group_idx ON debt_changes(group_id, changed_at DESC);
+
 -- Nothing is ever removed: rows are flagged with deleted_at and can be restored.
 ALTER TABLE groups        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
 ALTER TABLE group_members ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
@@ -125,16 +148,16 @@ $$ LANGUAGE plpgsql;
 DO $$
 DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER keep_history AFTER UPDATE OR DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION keep_row_history()', t);
   END LOOP;
   -- expense_shares is left out: editing an expense replaces its shares, the old ones stay in row_history
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'debt_changes', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_delete BEFORE DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_truncate BEFORE TRUNCATE ON %I
                     FOR EACH STATEMENT EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;

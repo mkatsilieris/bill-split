@@ -96,12 +96,16 @@ async function loadExpense(groupId: number, expenseId: number) {
   return rows[0];
 }
 
-/** One page of expenses plus the count and the sum of all of them, so the UI can page and show real totals. */
-async function listExpenses(groupId: number, deleted: boolean, limit: number, offset: number) {
+/**
+ * One page of expenses plus the count and the sum of all of them (within the same month filter),
+ * so the UI can page and show real totals. `month` is 'YYYY-MM' or null for everything.
+ */
+async function listExpenses(groupId: number, deleted: boolean, limit: number, offset: number, month: string | null) {
   const totals = await pool.query<{ count: number; amount: number }>(
     `SELECT count(*)::int AS count, COALESCE(sum(amount), 0)::numeric(12, 2) AS amount
-       FROM expenses WHERE group_id = $1 AND (deleted_at IS NOT NULL) = $2`,
-    [groupId, deleted],
+       FROM expenses WHERE group_id = $1 AND (deleted_at IS NOT NULL) = $2
+        AND ($3::text IS NULL OR to_char(spent_at, 'YYYY-MM') = $3)`,
+    [groupId, deleted, month],
   );
   const { rows } = await pool.query(
     `SELECT e.*, u.name AS paid_by_name,
@@ -112,10 +116,11 @@ async function listExpenses(groupId: number, deleted: boolean, limit: number, of
        LEFT JOIN expense_shares es ON es.expense_id = e.id
        LEFT JOIN users su ON su.id = es.user_id
       WHERE e.group_id = $1 AND (e.deleted_at IS NOT NULL) = $2
+        AND ($5::text IS NULL OR to_char(e.spent_at, 'YYYY-MM') = $5)
       GROUP BY e.id, u.name
       ORDER BY e.spent_at DESC, e.created_at DESC
       LIMIT $3 OFFSET $4`,
-    [groupId, deleted, limit, offset],
+    [groupId, deleted, limit, offset, month],
   );
   return { expenses: rows, total: totals.rows[0] };
 }
@@ -123,22 +128,76 @@ async function listExpenses(groupId: number, deleted: boolean, limit: number, of
 function pageParams(query: Record<string, unknown>) {
   const limit = Math.min(Math.max(Number(query.limit ?? 100) || 100, 1), 500);
   const offset = Math.max(Number(query.offset ?? 0) || 0, 0);
-  return { limit, offset };
+  const month = typeof query.month === 'string' && /^\d{4}-\d{2}$/.test(query.month) ? query.month : null;
+  return { limit, offset, month };
 }
 
-/** ?limit (default 100, max 500) and ?offset page through the list; `total` covers the whole group. */
+/** ?limit (default 100, max 500) and ?offset page through the list, ?month=YYYY-MM narrows it; `total` matches the filter. */
 expensesRouter.get('/', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   await requireMember(groupId, req.user.id);
-  const { limit, offset } = pageParams(req.query);
-  res.json(await listExpenses(groupId, false, limit, offset));
+  const { limit, offset, month } = pageParams(req.query);
+  res.json(await listExpenses(groupId, false, limit, offset, month));
 });
 
 expensesRouter.get('/deleted', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   await requireMember(groupId, req.user.id);
-  const { limit, offset } = pageParams(req.query);
-  res.json(await listExpenses(groupId, true, limit, offset));
+  const { limit, offset, month } = pageParams(req.query);
+  res.json(await listExpenses(groupId, true, limit, offset, month));
+});
+
+interface MonthStats {
+  month: string;
+  count: number;
+  total: number;
+  by_category: { category: string | null; count: number; total: number }[];
+  by_member: { user_id: number; paid: number; share: number }[];
+}
+
+/** Every month that has expenses, newest first, with totals per category and per member (for the list and the stats). */
+expensesRouter.get('/months', async (req, res) => {
+  const groupId = parseId((req.params as Record<string, string>).id);
+  await requireMember(groupId, req.user.id);
+  const [months, categories, paid, shares] = await Promise.all([
+    pool.query<{ month: string; count: number; total: number }>(
+      `SELECT to_char(spent_at, 'YYYY-MM') AS month, count(*)::int AS count, sum(amount)::numeric(12, 2) AS total
+         FROM expenses WHERE group_id = $1 AND deleted_at IS NULL GROUP BY 1 ORDER BY 1 DESC`,
+      [groupId],
+    ),
+    pool.query<{ month: string; category: string | null; count: number; total: number }>(
+      `SELECT to_char(spent_at, 'YYYY-MM') AS month, category, count(*)::int AS count, sum(amount)::numeric(12, 2) AS total
+         FROM expenses WHERE group_id = $1 AND deleted_at IS NULL GROUP BY 1, 2 ORDER BY 1 DESC, 4 DESC`,
+      [groupId],
+    ),
+    pool.query<{ month: string; user_id: number; paid: number }>(
+      `SELECT to_char(spent_at, 'YYYY-MM') AS month, paid_by AS user_id, sum(amount)::numeric(12, 2) AS paid
+         FROM expenses WHERE group_id = $1 AND deleted_at IS NULL GROUP BY 1, 2`,
+      [groupId],
+    ),
+    pool.query<{ month: string; user_id: number; share: number }>(
+      `SELECT to_char(e.spent_at, 'YYYY-MM') AS month, es.user_id, sum(es.amount)::numeric(12, 2) AS share
+         FROM expense_shares es JOIN expenses e ON e.id = es.expense_id
+        WHERE e.group_id = $1 AND e.deleted_at IS NULL GROUP BY 1, 2`,
+      [groupId],
+    ),
+  ]);
+
+  const byMonth = new Map<string, MonthStats>();
+  for (const m of months.rows) byMonth.set(m.month, { ...m, by_category: [], by_member: [] });
+  for (const c of categories.rows) byMonth.get(c.month)?.by_category.push({ category: c.category, count: c.count, total: c.total });
+  const member = (month: string, userId: number) => {
+    const m = byMonth.get(month)!;
+    let entry = m.by_member.find((x) => x.user_id === userId);
+    if (!entry) {
+      entry = { user_id: userId, paid: 0, share: 0 };
+      m.by_member.push(entry);
+    }
+    return entry;
+  };
+  for (const p of paid.rows) member(p.month, p.user_id).paid = p.paid;
+  for (const s of shares.rows) member(s.month, s.user_id).share = s.share;
+  res.json({ months: [...byMonth.values()] });
 });
 
 expensesRouter.post('/', async (req, res) => {

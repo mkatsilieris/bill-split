@@ -7,6 +7,7 @@ import { ErrorBox, Spinner } from '../components/ui';
 import { ExpensesTab } from '../components/ExpensesTab';
 import { BalancesTab } from '../components/BalancesTab';
 import { MembersTab } from '../components/MembersTab';
+import { StatsTab } from '../components/StatsTab';
 
 export interface GroupData {
   group: Group;
@@ -14,10 +15,11 @@ export interface GroupData {
   my_role: Role;
 }
 
-type Tab = 'expenses' | 'balances' | 'members';
+type Tab = 'expenses' | 'balances' | 'stats' | 'members';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'expenses', label: 'Έξοδα' },
   { key: 'balances', label: 'Υπόλοιπα' },
+  { key: 'stats', label: 'Στατιστικά' },
   { key: 'members', label: 'Μέλη & ρυθμίσεις' },
 ];
 
@@ -86,6 +88,7 @@ export default function GroupDetail() {
       {tab === 'balances' && (
         <BalancesTab group={group} members={members} currentUserId={user.id} version={version} onChanged={reload} />
       )}
+      {tab === 'stats' && <StatsTab group={group} members={members} currentUserId={user.id} version={version} />}
       {tab === 'members' && (
         <MembersTab
           group={group}

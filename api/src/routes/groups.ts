@@ -5,8 +5,10 @@ import { pool, withTransaction } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { HttpError, badRequest, forbidden, notFound } from '../errors.js';
 import { addMember, loadMembers, parseId, requireMember, requireOwner, type GroupRow } from '../lib/membership.js';
+import { userBalanceSql } from '../lib/balance-sql.js';
 import { expensesRouter } from './expenses.js';
 import { settlementsRouter } from './settlements.js';
+import { debtChangesRouter } from './debt_changes.js';
 
 export const groupsRouter = Router();
 groupsRouter.use(requireAuth);
@@ -30,12 +32,7 @@ groupsRouter.get('/', async (req, res) => {
     `SELECT g.id, g.name, g.description, g.currency, g.split_mode, g.created_at, gm.role,
             (SELECT COUNT(*) FROM group_members WHERE group_id = g.id AND deleted_at IS NULL)::int AS member_count,
             COALESCE((SELECT SUM(amount) FROM expenses WHERE group_id = g.id AND deleted_at IS NULL), 0) AS total_spent,
-              COALESCE((SELECT SUM(e.amount) FROM expenses e WHERE e.group_id = g.id AND e.paid_by = $1 AND e.deleted_at IS NULL), 0)
-            - COALESCE((SELECT SUM(es.amount) FROM expense_shares es JOIN expenses e ON e.id = es.expense_id
-                         WHERE e.group_id = g.id AND es.user_id = $1 AND e.deleted_at IS NULL), 0)
-            + COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = g.id AND from_user = $1 AND deleted_at IS NULL), 0)
-            - COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = g.id AND to_user = $1 AND deleted_at IS NULL), 0)
-              AS my_balance
+            ${userBalanceSql('g.id', '$1')} AS my_balance
        FROM groups g
        JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = $1 AND gm.deleted_at IS NULL
       WHERE g.deleted_at IS NULL
@@ -219,13 +216,7 @@ groupsRouter.delete('/:id/members/:userId', async (req, res) => {
   if (targetId !== req.user.id && role !== 'owner') throw forbidden('Μόνο ο διαχειριστής μπορεί να αφαιρέσει μέλη');
 
   const { rows } = await pool.query<{ balance: number; count: number }>(
-    `SELECT
-       (  COALESCE((SELECT SUM(amount) FROM expenses WHERE group_id = $1 AND paid_by = $2 AND deleted_at IS NULL), 0)
-        - COALESCE((SELECT SUM(es.amount) FROM expense_shares es JOIN expenses e ON e.id = es.expense_id
-                     WHERE e.group_id = $1 AND es.user_id = $2 AND e.deleted_at IS NULL), 0)
-        + COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = $1 AND from_user = $2 AND deleted_at IS NULL), 0)
-        - COALESCE((SELECT SUM(amount) FROM settlements WHERE group_id = $1 AND to_user = $2 AND deleted_at IS NULL), 0)
-       ) AS balance,
+    `SELECT ${userBalanceSql('$1', '$2')} AS balance,
        (SELECT COUNT(*) FROM group_members WHERE group_id = $1 AND deleted_at IS NULL)::int AS count`,
     [groupId, targetId],
   );
@@ -249,3 +240,4 @@ groupsRouter.delete('/:id/members/:userId', async (req, res) => {
 
 groupsRouter.use('/:id/expenses', expensesRouter);
 groupsRouter.use('/:id', settlementsRouter);
+groupsRouter.use('/:id', debtChangesRouter);

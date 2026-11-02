@@ -697,3 +697,148 @@ input[type='radio'] {
     transform: rotate(360deg);
   }
 }
+
+/* ---- expenses grouped by month ---- */
+.month-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.month-head:hover {
+  background: var(--surface-2);
+}
+.month-head .chev {
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.month-head[aria-expanded='true'] .chev {
+  transform: rotate(90deg);
+}
+.month-title {
+  flex: 1;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.month-body {
+  margin-top: 8px;
+  padding-left: 4px;
+}
+
+/* ---- statistics ---- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: var(--shadow);
+}
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.stat-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stat-sub {
+  font-size: 0.8rem;
+}
+.delta {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.delta.up {
+  color: var(--neg);
+}
+.delta.down {
+  color: var(--pos);
+}
+.delta.zero {
+  color: var(--muted);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.table th,
+.table td {
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.table th {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.table tr.selected td {
+  background: var(--surface-2);
+}
+.chart-wrap {
+  position: relative;
+}
+.chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.chart .grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.chart text {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.chart .bar {
+  fill: var(--primary);
+  opacity: 0.45;
+  transition: opacity 0.1s;
+}
+.chart .bar.selected {
+  opacity: 1;
+}
+.chart .bar.hover {
+  opacity: 0.85;
+}
+.chart .avg {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.chart-tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+  z-index: 2;
+}

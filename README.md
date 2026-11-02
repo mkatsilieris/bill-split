@@ -11,7 +11,11 @@ Self-hosted εφαρμογή (τύπου Splitwise) για την καταγρα
 - **Μέλη**: πρόσκληση με κωδικό/σύνδεσμο ή με email υπάρχοντος χρήστη.
 - **Κανόνας διαμοιρασμού ανά ομάδα**: ίσα μέρη (π.χ. μισά-μισά) ή ποσοστό ανά μέλος (π.χ. 60/40).
 - **Έξοδα**: ποσό, ποιος πλήρωσε, ημερομηνία, κατηγορία. Κάθε έξοδο ακολουθεί την προεπιλογή της ομάδας ή δικό του διαμοιρασμό (ίσα μεταξύ επιλεγμένων, ποσοστά, ακριβή ποσά).
+- **Έξοδα ανά μήνα**: η λίστα είναι χωρισμένη σε μήνες, ο τελευταίος ανοιχτός και οι παλιότεροι πτυσσόμενοι, με σύνολο, πλήθος και προσωπικό υπόλοιπο ανά μήνα και «περισσότερα» όπου χρειάζεται.
+- **Στατιστικά**: ανά μήνα σύνολο, πλήθος και μέσο έξοδο, σύγκριση με τον προηγούμενο μήνα και με τον μέσο όρο των 6 προηγούμενων, γράφημα 12 μηνών, ανάλυση ανά κατηγορία (δίπλα στον προηγούμενο μήνα) και ανά μέλος.
 - **Υπόλοιπα & εξόφληση**: ποιος χρωστάει σε ποιον, με τις λιγότερες δυνατές πληρωμές. Καταγραφή πληρωμών με ιστορικό.
+- **Αλλαγές χρεών**: χειροκίνητη διόρθωση («ο Α χρωστάει 20 € λιγότερα στη Β») χωρίς έξοδο ή πληρωμή, και μεταφορά χρέους σε άλλη ομάδα όπου είναι μέλη και οι δύο (φεύγει από τη μία, εμφανίζεται στην άλλη, διαγράφεται και επαναφέρεται μαζί).
+- **Εισαγωγή από Splitwise**: το CSV export μιας ομάδας του Splitwise μπαίνει σε μια ομάδα με όλα τα έξοδα και τις πληρωμές (βλ. παρακάτω).
 - **Τίποτα δεν σβήνεται**: τα διαγραμμένα έξοδα, πληρωμές, ομάδες και μέλη μένουν στη βάση με `deleted_at` και επαναφέρονται. Κάθε αλλαγή κρατά την προηγούμενη τιμή στον πίνακα `row_history`.
 - **Mobile-first UI** στα ελληνικά, light/dark mode.
 
@@ -269,11 +273,15 @@ Tests λογικής διαμοιρασμού/υπολοίπων: `cd api && npm
 | POST | `/api/groups/join` | Συμμετοχή με κωδικό |
 | GET/PATCH/DELETE | `/api/groups/:id` | Ομάδα, ρυθμίσεις (split_mode, ποσοστά) |
 | POST/DELETE | `/api/groups/:id/members[/:userId]` | Μέλη |
-| GET/POST/PUT/DELETE | `/api/groups/:id/expenses[/:eid]` | Έξοδα |
+| GET/POST/PUT/DELETE | `/api/groups/:id/expenses[/:eid]` | Έξοδα (`?month=YYYY-MM`, `?limit`, `?offset`· η απάντηση έχει και `total`) |
+| GET | `/api/groups/:id/expenses/months` | Σύνολα ανά μήνα, ανά κατηγορία και ανά μέλος |
 | GET | `/api/groups/:id/balances` | Υπόλοιπα + προτεινόμενες πληρωμές |
 | GET/POST/DELETE | `/api/groups/:id/settlements[/:sid]` | Εξοφλήσεις |
-| GET | `/api/groups/deleted` · `/api/groups/:id/expenses/deleted` · `/api/groups/:id/settlements/deleted` | Διαγραμμένα |
-| POST | `/api/groups/:id/restore` · `/api/groups/:id/expenses/:eid/restore` · `/api/groups/:id/settlements/:sid/restore` | Επαναφορά |
+| GET/POST/DELETE | `/api/groups/:id/debt-changes[/:cid]` | Αλλαγές χρεών (διορθώσεις) |
+| POST | `/api/groups/:id/debt-changes/transfer` | Μεταφορά χρέους σε άλλη ομάδα (`target_group_id`) |
+| GET | `/api/groups/:id/debt-changes/targets?debtor=&creditor=` | Ομάδες στις οποίες μπορεί να μεταφερθεί το χρέος |
+| GET | `/api/groups/deleted` · `/api/groups/:id/expenses/deleted` · `/api/groups/:id/settlements/deleted` · `/api/groups/:id/debt-changes/deleted` | Διαγραμμένα |
+| POST | `/api/groups/:id/restore` · `.../expenses/:eid/restore` · `.../settlements/:sid/restore` · `.../debt-changes/:cid/restore` | Επαναφορά |
 
 Όλα τα endpoints εκτός των auth απαιτούν header `Authorization: Bearer <token>`.
 
