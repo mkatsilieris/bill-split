@@ -96,7 +96,13 @@ async function loadExpense(groupId: number, expenseId: number) {
   return rows[0];
 }
 
+/** One page of expenses plus the count and the sum of all of them, so the UI can page and show real totals. */
 async function listExpenses(groupId: number, deleted: boolean, limit: number, offset: number) {
+  const totals = await pool.query<{ count: number; amount: number }>(
+    `SELECT count(*)::int AS count, COALESCE(sum(amount), 0)::numeric(12, 2) AS amount
+       FROM expenses WHERE group_id = $1 AND (deleted_at IS NOT NULL) = $2`,
+    [groupId, deleted],
+  );
   const { rows } = await pool.query(
     `SELECT e.*, u.name AS paid_by_name,
             COALESCE(json_agg(json_build_object('user_id', es.user_id, 'name', su.name, 'amount', es.amount)
@@ -111,21 +117,28 @@ async function listExpenses(groupId: number, deleted: boolean, limit: number, of
       LIMIT $3 OFFSET $4`,
     [groupId, deleted, limit, offset],
   );
-  return rows;
+  return { expenses: rows, total: totals.rows[0] };
 }
 
+function pageParams(query: Record<string, unknown>) {
+  const limit = Math.min(Math.max(Number(query.limit ?? 100) || 100, 1), 500);
+  const offset = Math.max(Number(query.offset ?? 0) || 0, 0);
+  return { limit, offset };
+}
+
+/** ?limit (default 100, max 500) and ?offset page through the list; `total` covers the whole group. */
 expensesRouter.get('/', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   await requireMember(groupId, req.user.id);
-  const limit = Math.min(Number(req.query.limit ?? 100), 500);
-  const offset = Math.max(Number(req.query.offset ?? 0), 0);
-  res.json({ expenses: await listExpenses(groupId, false, limit, offset) });
+  const { limit, offset } = pageParams(req.query);
+  res.json(await listExpenses(groupId, false, limit, offset));
 });
 
 expensesRouter.get('/deleted', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   await requireMember(groupId, req.user.id);
-  res.json({ expenses: await listExpenses(groupId, true, 500, 0) });
+  const { limit, offset } = pageParams(req.query);
+  res.json(await listExpenses(groupId, true, limit, offset));
 });
 
 expensesRouter.post('/', async (req, res) => {

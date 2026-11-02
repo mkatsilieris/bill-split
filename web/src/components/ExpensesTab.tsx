@@ -13,23 +13,52 @@ interface Props {
   onChanged: () => void;
 }
 
+/** The API pages the list; this is how many we ask for at a time (its maximum is 500). */
+const PAGE = 100;
+
+interface ExpenseList {
+  expenses: Expense[];
+  /** count and sum of all expenses of the group, not only the ones returned */
+  total: { count: number; amount: number };
+}
+
 export function ExpensesTab({ group, members, currentUserId, version, onChanged }: Props) {
   const [expenses, setExpenses] = useState<Expense[] | null>(null);
+  const [total, setTotal] = useState<{ count: number; amount: number }>({ count: 0, amount: 0 });
   const [deleted, setDeleted] = useState<Expense[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [editing, setEditing] = useState<Expense | 'new' | null>(null);
 
   useEffect(() => {
+    // After a change, reload at least as many as were already on screen so the user keeps their place.
+    const limit = Math.min(Math.max(expenses?.length ?? 0, PAGE), 500);
     Promise.all([
-      api<{ expenses: Expense[] }>(`/groups/${group.id}/expenses`),
-      api<{ expenses: Expense[] }>(`/groups/${group.id}/expenses/deleted`),
+      api<ExpenseList>(`/groups/${group.id}/expenses?limit=${limit}`),
+      api<ExpenseList>(`/groups/${group.id}/expenses/deleted?limit=500`),
     ])
       .then(([active, removed]) => {
         setExpenses(active.expenses);
+        setTotal(active.total);
         setDeleted(removed.expenses);
       })
       .catch((err) => setError(errorMessage(err)));
   }, [group.id, version]);
+
+  async function loadMore() {
+    if (!expenses || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await api<ExpenseList>(`/groups/${group.id}/expenses?limit=${PAGE}&offset=${expenses.length}`);
+      const known = new Set(expenses.map((e) => e.id));
+      setExpenses([...expenses, ...page.expenses.filter((e) => !known.has(e.id))]);
+      setTotal(page.total);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function restore(e: Expense) {
     try {
@@ -40,13 +69,14 @@ export function ExpensesTab({ group, members, currentUserId, version, onChanged 
     }
   }
 
-  const total = expenses?.reduce((s, e) => s + e.amount, 0) ?? 0;
+  const remaining = expenses ? total.count - expenses.length : 0;
 
   return (
     <div className="stack">
       <div className="row between">
         <div className="muted">
-          Σύνολο: <strong>{money(total, group.currency)}</strong>
+          Σύνολο: <strong>{money(total.amount, group.currency)}</strong>
+          {total.count > 0 && ` · ${total.count} έξοδα`}
         </div>
         <button className="btn btn-primary" onClick={() => setEditing('new')}>
           + Έξοδο
@@ -91,6 +121,11 @@ export function ExpensesTab({ group, members, currentUserId, version, onChanged 
             );
           })}
         </ul>
+      )}
+      {remaining > 0 && (
+        <button className="btn" onClick={loadMore} disabled={loadingMore}>
+          {loadingMore ? 'Φόρτωση…' : `Περισσότερα (${remaining} ακόμη)`}
+        </button>
       )}
       <DeletedItems
         items={deleted}
