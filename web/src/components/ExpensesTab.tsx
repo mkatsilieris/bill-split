@@ -125,6 +125,35 @@ export function ExpensesTab({ group, members, currentUserId, version, onChanged 
     }
   }
 
+  // Search: typed text is applied after a short pause; the server ignores case and accents.
+  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<MonthPage | null>(null);
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+  const loadResults = useCallback(
+    async (offset: number) => {
+      setResults((r) => (offset > 0 && r ? { ...r, loading: true } : { expenses: [], total: { count: 0, amount: 0 }, loading: true }));
+      try {
+        const page = await api<ExpenseList>(`/groups/${group.id}/expenses?q=${encodeURIComponent(search)}&limit=${PAGE}&offset=${offset}`);
+        setResults((r) => ({ expenses: offset > 0 && r ? [...r.expenses, ...page.expenses] : page.expenses, total: page.total, loading: false }));
+      } catch (err) {
+        setError(errorMessage(err));
+        setResults((r) => (r ? { ...r, loading: false } : null));
+      }
+    },
+    [group.id, search],
+  );
+  useEffect(() => {
+    if (!search) {
+      setResults(null);
+      return;
+    }
+    void loadResults(0);
+  }, [search, loadResults, version]);
+
   const totalAmount = months?.reduce((s, m) => s + m.total, 0) ?? 0;
   const totalCount = months?.reduce((s, m) => s + m.count, 0) ?? 0;
 
@@ -139,8 +168,46 @@ export function ExpensesTab({ group, members, currentUserId, version, onChanged 
           + Έξοδο
         </button>
       </div>
+      {(totalCount > 0 || query) && (
+        <div className="search">
+          <input
+            type="search"
+            placeholder="Αναζήτηση σε περιγραφή ή κατηγορία…"
+            aria-label="Αναζήτηση εξόδων"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query && (
+            <button type="button" className="btn-icon" aria-label="Καθαρισμός" onClick={() => setQuery('')}>
+              ✕
+            </button>
+          )}
+        </div>
+      )}
       <ErrorBox error={error} />
-      {months === null ? (
+      {search ? (
+        results === null || (results.loading && results.expenses.length === 0) ? (
+          <Spinner />
+        ) : results.total.count === 0 ? (
+          <Empty title={`Τίποτα για «${search}»`} />
+        ) : (
+          <>
+            <p className="muted small">
+              {results.total.count} έξοδα · {money(results.total.amount, group.currency)}
+            </p>
+            <ul className="list">
+              {results.expenses.map((e) => (
+                <ExpenseRow key={e.id} expense={e} currency={group.currency} currentUserId={currentUserId} onOpen={() => setEditing(e)} />
+              ))}
+            </ul>
+            {results.expenses.length < results.total.count && (
+              <button className="btn" disabled={results.loading} onClick={() => loadResults(results.expenses.length)}>
+                {results.loading ? 'Φόρτωση…' : `Περισσότερα (${results.total.count - results.expenses.length} ακόμη)`}
+              </button>
+            )}
+          </>
+        )
+      ) : months === null ? (
         <Spinner />
       ) : months.length === 0 ? (
         <Empty title="Δεν υπάρχουν έξοδα ακόμη">

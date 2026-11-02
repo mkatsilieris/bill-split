@@ -842,3 +842,17 @@ input[type='radio'] {
   white-space: nowrap;
   z-index: 2;
 }
+
+/* ---- expense search ---- */
+.search {
+  position: relative;
+}
+.search input {
+  padding-right: 44px;
+}
+.search .btn-icon {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}

@@ -1,5 +1,11 @@
 -- Idempotent schema. Executed on every API start.
 
+-- Search that ignores case, accents (Σούπερ = σουπερ = ΣΟΥΠΕΡ) and the final sigma.
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE OR REPLACE FUNCTION search_norm(text) RETURNS text
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+  AS $$ SELECT translate(lower(unaccent('unaccent', $1)), 'ς', 'σ') $$;
+
 CREATE TABLE IF NOT EXISTS users (
   id            SERIAL PRIMARY KEY,
   email         TEXT UNIQUE NOT NULL,
