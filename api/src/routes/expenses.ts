@@ -96,18 +96,30 @@ async function loadExpense(groupId: number, expenseId: number) {
   return rows[0];
 }
 
+interface ListFilter {
+  /** 'YYYY-MM' or null for every month */
+  month: string | null;
+  /** text searched in the description (case- and accent-insensitive), null for no search */
+  q: string | null;
+  /** categories to keep (`none` = expenses without category); null keeps every category */
+  categories: { names: string[]; none: boolean } | null;
+}
+
 /**
- * One page of expenses plus the count and the sum of all of them (within the same month filter),
- * so the UI can page and show real totals. `month` is 'YYYY-MM' or null for everything.
+ * One page of expenses plus the count and the sum of everything that matches the same filter,
+ * so the UI can page and show real totals.
  */
-async function listExpenses(groupId: number, deleted: boolean, limit: number, offset: number, month: string | null, q: string | null) {
+async function listExpenses(groupId: number, deleted: boolean, limit: number, offset: number, filter: ListFilter) {
+  // $1 group, $2 deleted, $3 month, $4 q, $5 category names, $6 include no-category
   // search_norm() (schema.sql) ignores case, accents and the final sigma on both sides
-  const search = `($6::text IS NULL OR position(search_norm($6) IN search_norm(e.description || ' ' || COALESCE(e.category, ''))) > 0)`;
+  const where = `e.group_id = $1 AND (e.deleted_at IS NOT NULL) = $2
+        AND ($3::text IS NULL OR to_char(e.spent_at, 'YYYY-MM') = $3)
+        AND ($4::text IS NULL OR position(search_norm($4) IN search_norm(e.description)) > 0)
+        AND ($5::text[] IS NULL OR e.category = ANY($5::text[]) OR ($6::boolean AND e.category IS NULL))`;
+  const params = [groupId, deleted, filter.month, filter.q, filter.categories?.names ?? null, filter.categories?.none ?? false];
   const totals = await pool.query<{ count: number; amount: number }>(
-    `SELECT count(*)::int AS count, COALESCE(sum(amount), 0)::numeric(12, 2) AS amount
-       FROM expenses e WHERE e.group_id = $1 AND (e.deleted_at IS NOT NULL) = $2
-        AND ($3::text IS NULL OR to_char(e.spent_at, 'YYYY-MM') = $3) AND ${search.replaceAll('$6', '$4')}`,
-    [groupId, deleted, month, q],
+    `SELECT count(*)::int AS count, COALESCE(sum(amount), 0)::numeric(12, 2) AS amount FROM expenses e WHERE ${where}`,
+    params,
   );
   const { rows } = await pool.query(
     `SELECT e.*, u.name AS paid_by_name,
@@ -117,40 +129,48 @@ async function listExpenses(groupId: number, deleted: boolean, limit: number, of
        JOIN users u ON u.id = e.paid_by
        LEFT JOIN expense_shares es ON es.expense_id = e.id
        LEFT JOIN users su ON su.id = es.user_id
-      WHERE e.group_id = $1 AND (e.deleted_at IS NOT NULL) = $2
-        AND ($5::text IS NULL OR to_char(e.spent_at, 'YYYY-MM') = $5) AND ${search}
+      WHERE ${where}
       GROUP BY e.id, u.name
       ORDER BY e.spent_at DESC, e.created_at DESC
-      LIMIT $3 OFFSET $4`,
-    [groupId, deleted, limit, offset, month, q],
+      LIMIT $7 OFFSET $8`,
+    [...params, limit, offset],
   );
   return { expenses: rows, total: totals.rows[0] };
 }
+
+/** Token the client sends in ?categories= for "expenses without category". */
+const NO_CATEGORY = '_none';
 
 function pageParams(query: Record<string, unknown>) {
   const limit = Math.min(Math.max(Number(query.limit ?? 100) || 100, 1), 500);
   const offset = Math.max(Number(query.offset ?? 0) || 0, 0);
   const month = typeof query.month === 'string' && /^\d{4}-\d{2}$/.test(query.month) ? query.month : null;
   const q = typeof query.q === 'string' && query.q.trim() ? query.q.trim().slice(0, 100) : null;
-  return { limit, offset, month, q };
+  let categories: ListFilter['categories'] = null;
+  if (typeof query.categories === 'string') {
+    const list = query.categories.split(',').map((c) => c.trim()).filter(Boolean);
+    categories = { names: list.filter((c) => c !== NO_CATEGORY), none: list.includes(NO_CATEGORY) };
+  }
+  return { limit, offset, filter: { month, q, categories } };
 }
 
 /**
- * ?limit (default 100, max 500) and ?offset page through the list; ?month=YYYY-MM and ?q=<text>
- * (description or category, ignoring case and accents) narrow it; `total` matches the filter.
+ * ?limit (default 100, max 500) and ?offset page through the list. Filters: ?month=YYYY-MM,
+ * ?q=<text> (description, ignoring case and accents), ?categories=a,b,_none (comma separated,
+ * `_none` = without category; absent = all). `total` matches the filter.
  */
 expensesRouter.get('/', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   await requireMember(groupId, req.user.id);
-  const { limit, offset, month, q } = pageParams(req.query);
-  res.json(await listExpenses(groupId, false, limit, offset, month, q));
+  const { limit, offset, filter } = pageParams(req.query);
+  res.json(await listExpenses(groupId, false, limit, offset, filter));
 });
 
 expensesRouter.get('/deleted', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   await requireMember(groupId, req.user.id);
-  const { limit, offset, month, q } = pageParams(req.query);
-  res.json(await listExpenses(groupId, true, limit, offset, month, q));
+  const { limit, offset, filter } = pageParams(req.query);
+  res.json(await listExpenses(groupId, true, limit, offset, filter));
 });
 
 interface MonthStats {

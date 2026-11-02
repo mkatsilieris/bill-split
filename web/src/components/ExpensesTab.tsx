@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../api';
 import { date, money, monthLabel } from '../format';
 import type { Expense, Group, Member, MonthStats } from '../types';
@@ -17,6 +17,8 @@ interface Props {
 const PAGE = 100;
 /** How many month sections are shown at first; "Περισσότεροι μήνες" reveals the next batch. */
 const MONTHS_STEP = 6;
+/** Token for "expenses without category" in the category filter (same as the API's). */
+const NO_CATEGORY = '_none';
 
 interface ExpenseList {
   expenses: Expense[];
@@ -125,34 +127,47 @@ export function ExpensesTab({ group, members, currentUserId, version, onChanged 
     }
   }
 
-  // Search: typed text is applied after a short pause; the server ignores case and accents.
+  // Filters. Search text is applied after a short pause (the server ignores case and accents);
+  // `cats` is the set of selected categories, null = all. With any filter active the month
+  // sections give way to one flat, paged result list.
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
+  const [cats, setCats] = useState<Set<string> | null>(null);
   const [results, setResults] = useState<MonthPage | null>(null);
   useEffect(() => {
     const t = setTimeout(() => setSearch(query.trim()), 300);
     return () => clearTimeout(t);
   }, [query]);
+  const categoryOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const m of months ?? []) for (const c of m.by_category) seen.add(c.category ?? NO_CATEGORY);
+    const named = [...seen].filter((c) => c !== NO_CATEGORY).sort((a, b) => a.localeCompare(b, 'el'));
+    return seen.has(NO_CATEGORY) ? [...named, NO_CATEGORY] : named;
+  }, [months]);
+  const catParam = cats === null ? '' : `&categories=${encodeURIComponent([...cats].join(','))}`;
+  const active = Boolean(search) || cats !== null;
   const loadResults = useCallback(
     async (offset: number) => {
       setResults((r) => (offset > 0 && r ? { ...r, loading: true } : { expenses: [], total: { count: 0, amount: 0 }, loading: true }));
       try {
-        const page = await api<ExpenseList>(`/groups/${group.id}/expenses?q=${encodeURIComponent(search)}&limit=${PAGE}&offset=${offset}`);
+        const page = await api<ExpenseList>(
+          `/groups/${group.id}/expenses?q=${encodeURIComponent(search)}${catParam}&limit=${PAGE}&offset=${offset}`,
+        );
         setResults((r) => ({ expenses: offset > 0 && r ? [...r.expenses, ...page.expenses] : page.expenses, total: page.total, loading: false }));
       } catch (err) {
         setError(errorMessage(err));
         setResults((r) => (r ? { ...r, loading: false } : null));
       }
     },
-    [group.id, search],
+    [group.id, search, catParam],
   );
   useEffect(() => {
-    if (!search) {
+    if (!active) {
       setResults(null);
       return;
     }
     void loadResults(0);
-  }, [search, loadResults, version]);
+  }, [active, loadResults, version]);
 
   const totalAmount = months?.reduce((s, m) => s + m.total, 0) ?? 0;
   const totalCount = months?.reduce((s, m) => s + m.count, 0) ?? 0;
@@ -168,28 +183,31 @@ export function ExpensesTab({ group, members, currentUserId, version, onChanged 
           + Έξοδο
         </button>
       </div>
-      {(totalCount > 0 || query) && (
-        <div className="search">
-          <input
-            type="search"
-            placeholder="Αναζήτηση σε περιγραφή ή κατηγορία…"
-            aria-label="Αναζήτηση εξόδων"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {query && (
-            <button type="button" className="btn-icon" aria-label="Καθαρισμός" onClick={() => setQuery('')}>
-              ✕
-            </button>
-          )}
+      {(totalCount > 0 || active) && (
+        <div className="filters">
+          <div className="search">
+            <input
+              type="search"
+              placeholder="Αναζήτηση στην περιγραφή…"
+              aria-label="Αναζήτηση εξόδων"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button type="button" className="btn-icon" aria-label="Καθαρισμός" onClick={() => setQuery('')}>
+                ✕
+              </button>
+            )}
+          </div>
+          <CategoryFilter options={categoryOptions} selected={cats} onChange={setCats} />
         </div>
       )}
       <ErrorBox error={error} />
-      {search ? (
+      {active ? (
         results === null || (results.loading && results.expenses.length === 0) ? (
           <Spinner />
         ) : results.total.count === 0 ? (
-          <Empty title={`Τίποτα για «${search}»`} />
+          <Empty title={search ? `Τίποτα για «${search}»` : 'Κανένα έξοδο σε αυτές τις κατηγορίες'} />
         ) : (
           <>
             <p className="muted small">
@@ -325,5 +343,77 @@ function ExpenseRow({
         </div>
       </button>
     </li>
+  );
+}
+
+/**
+ * Multi-select of categories as a button that opens a list of checkboxes. `selected` null means
+ * every category (the default); selecting all of them by hand goes back to null.
+ */
+function CategoryFilter({
+  options,
+  selected,
+  onChange,
+}: {
+  options: string[];
+  selected: Set<string> | null;
+  onChange: (next: Set<string> | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  if (options.length === 0) return null;
+  const label = (c: string) => (c === NO_CATEGORY ? 'Χωρίς κατηγορία' : c);
+  const isOn = (c: string) => selected === null || selected.has(c);
+  const count = selected === null ? options.length : options.filter((c) => selected.has(c)).length;
+
+  function toggle(c: string) {
+    const next = new Set(selected ?? options);
+    if (next.has(c)) next.delete(c);
+    else next.add(c);
+    onChange(next.size === options.length ? null : next);
+  }
+
+  return (
+    <div className="dropdown" ref={ref}>
+      <button type="button" className={`btn ${selected !== null ? 'btn-active' : ''}`} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {selected === null ? 'Όλες οι κατηγορίες' : count === 0 ? 'Καμία κατηγορία' : `${count} από ${options.length} κατηγορίες`}
+        <span aria-hidden="true"> ▾</span>
+      </button>
+      {open && (
+        <div className="dropdown-menu stack" role="group" aria-label="Κατηγορίες">
+          <div className="row gap">
+            <button type="button" className="btn btn-small" onClick={() => onChange(null)}>
+              Όλες
+            </button>
+            <button type="button" className="btn btn-small" onClick={() => onChange(new Set())}>
+              Καμία
+            </button>
+          </div>
+          {options.map((c) => (
+            <label key={c} className="check">
+              <input type="checkbox" checked={isOn(c)} onChange={() => toggle(c)} />
+              <span>{label(c)}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
