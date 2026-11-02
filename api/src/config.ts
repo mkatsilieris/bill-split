@@ -27,6 +27,15 @@ export const config = {
     appId: env.ACCESS_APP_ID ?? '',
     policyId: env.ACCESS_POLICY_ID ?? '',
   },
+  // One-off import of a Splitwise export when the API starts (README > Εισαγωγή από Splitwise).
+  // Set IMPORT_SPLITWISE_FILE (inside the container) to enable; the file is applied only once.
+  importSplitwise: {
+    file: env.IMPORT_SPLITWISE_FILE ?? '',
+    group: env.IMPORT_SPLITWISE_GROUP || undefined,
+    users: env.IMPORT_SPLITWISE_USERS || undefined,
+    by: env.IMPORT_SPLITWISE_BY || undefined,
+    dryRun: ['1', 'true', 'yes'].includes((env.IMPORT_SPLITWISE_DRY_RUN ?? '').toLowerCase()),
+  },
   smtp: {
     host: env.SMTP_HOST ?? '',
     port: Number(env.SMTP_PORT ?? 587),

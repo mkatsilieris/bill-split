@@ -10,6 +10,7 @@ import { log, requestLogger } from './log.js';
 import { authRouter } from './routes/auth.js';
 import { groupsRouter } from './routes/groups.js';
 import { adminRouter } from './routes/admin.js';
+import { importSplitwise } from './import.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -47,7 +48,20 @@ async function main() {
       },
       'features',
     );
+    void runStartupImport();
   });
+}
+
+/** Applies IMPORT_SPLITWISE_FILE once (the file's hash is remembered); a failure never stops the API. */
+async function runStartupImport() {
+  const opts = config.importSplitwise;
+  if (!opts.file) return;
+  try {
+    const summary = await importSplitwise(opts);
+    log.info({ import: summary }, opts.dryRun ? 'splitwise import: dry run, nothing written' : 'splitwise import done');
+  } catch (err) {
+    log.error({ err, file: opts.file }, 'splitwise import failed');
+  }
 }
 
 main().catch((err) => {

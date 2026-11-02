@@ -72,6 +72,25 @@ CREATE TABLE IF NOT EXISTS settlements (
 );
 CREATE INDEX IF NOT EXISTS settlements_group_idx ON settlements(group_id, settled_at DESC);
 
+-- One row per bulk import (e.g. a Splitwise export). The imported expenses / settlements point back
+-- to it through import_id, so a whole import can be reviewed or undone (soft-deleted) at once.
+CREATE TABLE IF NOT EXISTS imports (
+  id          SERIAL PRIMARY KEY,
+  group_id    INT NOT NULL REFERENCES groups(id),
+  source      TEXT NOT NULL,
+  file_name   TEXT NOT NULL,
+  file_sha256 TEXT NOT NULL,
+  summary     JSONB,
+  created_by  INT NOT NULL REFERENCES users(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at  TIMESTAMPTZ,
+  deleted_by  INT REFERENCES users(id)
+);
+-- the same file is imported into a group only once (unless that import was undone)
+CREATE UNIQUE INDEX IF NOT EXISTS imports_file_idx ON imports(group_id, file_sha256) WHERE deleted_at IS NULL;
+ALTER TABLE expenses    ADD COLUMN IF NOT EXISTS import_id INT REFERENCES imports(id);
+ALTER TABLE settlements ADD COLUMN IF NOT EXISTS import_id INT REFERENCES imports(id);
+
 -- Nothing is ever removed: rows are flagged with deleted_at and can be restored.
 ALTER TABLE groups        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
 ALTER TABLE group_members ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
@@ -106,16 +125,16 @@ $$ LANGUAGE plpgsql;
 DO $$
 DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER keep_history AFTER UPDATE OR DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION keep_row_history()', t);
   END LOOP;
   -- expense_shares is left out: editing an expense replaces its shares, the old ones stay in row_history
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_delete BEFORE DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_truncate BEFORE TRUNCATE ON %I
                     FOR EACH STATEMENT EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;

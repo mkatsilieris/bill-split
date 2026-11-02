@@ -203,6 +203,46 @@ plan μένει δωρεάν. Αν κάποιος φύγει, βγάλε τον 
 - Χωρίς `COMPOSE_PROFILES=internet` το container `tunnel` δεν δημιουργείται καθόλου.
 - Logs του tunnel: `ssh billsplit-pi logs tunnel`.
 
+## Εισαγωγή από Splitwise
+
+Το export μιας ομάδας του Splitwise (Group settings > Export as spreadsheet, αρχείο CSV) μπαίνει σε μια ομάδα της
+εφαρμογής με όλα τα έξοδα και τις πληρωμές του, ώστε τα υπόλοιπα να βγαίνουν ίδια με το Splitwise.
+
+- Κάθε γραμμή του CSV γίνεται ένα έξοδο: πληρωτής είναι όποιος έχει θετική στήλη, οι αρνητικές στήλες είναι τα μερίδια
+  των άλλων και ο πληρωτής κρατά το υπόλοιπο. Αν το μερίδιο ταιριάζει με τον κανόνα της ομάδας αποθηκεύεται ως
+  «ίδιο με την ομάδα», αλλιώς ως ακριβή ποσά. Οι γραμμές `Payment` γίνονται εξοφλήσεις.
+- Οι κατηγορίες του Splitwise αντιστοιχίζονται στις κατηγορίες της εφαρμογής (`Groceries` → Σούπερ μάρκετ, κ.λπ.,
+  `General` → καμία). Τα άτομα του αρχείου αντιστοιχίζονται σε μέλη της ομάδας από το όνομα ή το email τους, ή ρητά.
+- Το ίδιο αρχείο δεν περνά δύο φορές στην ίδια ομάδα (κρατιέται το sha256 στον πίνακα `imports`). Κάθε έξοδο /
+  εξόφληση που μπήκε έχει `import_id`, οπότε μια ολόκληρη εισαγωγή αναιρείται με τρία `UPDATE ... SET deleted_at = now()`
+  (στα `expenses`, `settlements` και `imports`).
+
+**Από τη γραμμή εντολών**, στον φάκελο της εφαρμογής (`--dry-run` ελέγχει και δείχνει τι θα γίνει χωρίς να γράψει):
+
+```bash
+docker compose run --rm -v "$PWD/export.csv:/import/export.csv:ro" api \
+  node dist/import-cli.js /import/export.csv --group "Σπίτι" \
+  --users "Όνομα στο Splitwise=a@example.com, Άλλο όνομα=b@example.com" --dry-run
+```
+
+**Στην εκκίνηση του API**, για server που φτάνεις μόνο με το deploy key: ένα `docker-compose.override.yml` δίπλα στο
+`docker-compose.yml` που δίνει το αρχείο και τις ρυθμίσεις στο `api`. Στην επόμενη εκκίνηση γίνεται η εισαγωγή και
+το αποτέλεσμα γράφεται στα logs (`splitwise import done` ή `splitwise import failed` με τον λόγο). Αν ο ίδιος
+container ξαναξεκινήσει, το αρχείο αναγνωρίζεται ως ήδη εισηγμένο και δεν γίνεται τίποτα.
+
+```yaml
+services:
+  api:
+    environment:
+      IMPORT_SPLITWISE_FILE: /import/export.csv
+      IMPORT_SPLITWISE_GROUP: "Σπίτι"          # id ή όνομα, προαιρετικό αν υπάρχει μία ομάδα
+      IMPORT_SPLITWISE_USERS: "Όνομα στο Splitwise=a@example.com, Άλλο όνομα=b@example.com"
+      IMPORT_SPLITWISE_BY: a@example.com      # ποιος φαίνεται ότι καταχώρησε τα έξοδα (default: ο owner)
+      IMPORT_SPLITWISE_DRY_RUN: "1"           # βγάλ' το για την πραγματική εισαγωγή
+    volumes:
+      - ./import/export.csv:/import/export.csv:ro
+```
+
 ## Ανάπτυξη (χωρίς docker)
 
 ```bash
