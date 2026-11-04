@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, getToken, setToken } from './api';
+import { forgetPushDevice, resyncPush } from './push';
 import type { User } from './types';
 
 interface AuthState {
@@ -68,6 +69,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     boot().finally(() => setLoading(false));
   }, []);
 
+  const userId = user?.id;
+  useEffect(() => {
+    if (userId) void resyncPush();
+  }, [userId]);
+
   useEffect(() => {
     const onLogout = () => setUser(null);
     window.addEventListener('billsplit:logout', onLogout);
@@ -83,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const endAccessSession = readViaAccess();
+    forgetPushDevice(); // needs the token, so before it is cleared
     setToken(null);
     writeViaAccess(false);
     setViaAccess(false);

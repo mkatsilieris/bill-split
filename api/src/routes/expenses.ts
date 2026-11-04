@@ -5,6 +5,7 @@ import { pool, withTransaction } from '../db.js';
 import { badRequest, notFound } from '../errors.js';
 import { fromCents, splitByWeight, splitEqually, toCents } from '../lib/money.js';
 import { loadMembers, parseId, requireMember, type GroupRow, type MemberRow } from '../lib/membership.js';
+import { notifyUsers } from '../push.js';
 
 export const expensesRouter = Router({ mergeParams: true });
 
@@ -252,8 +253,45 @@ expensesRouter.post('/', async (req, res) => {
     await insertShares(tx, rows[0].id, shares);
     return rows[0].id;
   });
-  res.status(201).json({ expense: await loadExpense(groupId, expenseId) });
+  const expense = await loadExpense(groupId, expenseId);
+  res.status(201).json({ expense });
+  void notifyNewExpense(group, members, req.user.id, expense);
 });
+
+function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('el-GR', { style: 'currency', currency }).format(amount);
+  } catch {
+    return amount.toFixed(2);
+  }
+}
+
+/** Tells every other member of the group about the new expense, with their own share in it. */
+async function notifyNewExpense(
+  group: GroupRow,
+  members: MemberRow[],
+  creatorId: number,
+  expense: { id: number; description: string; amount: number; paid_by: number; shares: { user_id: number; amount: number }[] },
+) {
+  const name = (id: number) => members.find((m) => m.user_id === id)?.name ?? '';
+  const amount = formatMoney(expense.amount, group.currency);
+  let body = `${name(creatorId)} πρόσθεσε «${expense.description}» ${amount}`;
+  if (expense.paid_by !== creatorId) body += ` (πλήρωσε: ${name(expense.paid_by)})`;
+  await Promise.all(
+    members
+      .filter((m) => m.user_id !== creatorId)
+      .map((m) => {
+        const share = expense.shares.find((s) => s.user_id === m.user_id)?.amount;
+        return notifyUsers([m.user_id], {
+          title: group.name,
+          body: share ? `${body}
+Το μερίδιό σου: ${formatMoney(share, group.currency)}` : body,
+          url: `/groups/${group.id}`,
+          tag: `expense-${expense.id}`,
+        });
+      }),
+  );
+}
 
 expensesRouter.put('/:expenseId', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);

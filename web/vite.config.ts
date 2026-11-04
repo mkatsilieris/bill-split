@@ -27,6 +27,8 @@ export default defineConfig({
         // never cache API responses in the service worker
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
+        // push / notificationclick handlers (public/push-sw.js)
+        importScripts: ['push-sw.js'],
       },
     }),
   ],

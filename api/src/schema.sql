@@ -120,6 +120,30 @@ CREATE TABLE IF NOT EXISTS debt_changes (
 );
 CREATE INDEX IF NOT EXISTS debt_changes_group_idx ON debt_changes(group_id, changed_at DESC);
 
+-- Values the API creates itself on first start and keeps (e.g. the Web Push VAPID key pair).
+CREATE TABLE IF NOT EXISTS app_secrets (
+  name       TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per browser / phone that accepted push notifications. Turned off (by the person, by
+-- logging out, or because the push service says the subscription expired) = deleted_at set.
+-- The same device subscribing again brings its row back.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id           SERIAL PRIMARY KEY,
+  user_id      INT NOT NULL REFERENCES users(id),
+  endpoint     TEXT UNIQUE NOT NULL,
+  p256dh       TEXT NOT NULL,
+  auth         TEXT NOT NULL,
+  user_agent   TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_sent_at TIMESTAMPTZ,
+  deleted_at   TIMESTAMPTZ,
+  deleted_by   INT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions(user_id) WHERE deleted_at IS NULL;
+
 -- Nothing is ever removed: rows are flagged with deleted_at and can be restored.
 ALTER TABLE groups        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
 ALTER TABLE group_members ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
@@ -154,16 +178,16 @@ $$ LANGUAGE plpgsql;
 DO $$
 DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER keep_history AFTER UPDATE OR DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION keep_row_history()', t);
   END LOOP;
   -- expense_shares is left out: editing an expense replaces its shares, the old ones stay in row_history
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'debt_changes', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_delete BEFORE DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_truncate BEFORE TRUNCATE ON %I
                     FOR EACH STATEMENT EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;

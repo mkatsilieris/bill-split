@@ -36,6 +36,12 @@ export const config = {
     by: env.IMPORT_SPLITWISE_BY || undefined,
     dryRun: ['1', 'true', 'yes'].includes((env.IMPORT_SPLITWISE_DRY_RUN ?? '').toLowerCase()),
   },
+  // Web Push. All optional: without keys the API creates a pair on first start and keeps it in the DB.
+  push: {
+    publicKey: env.VAPID_PUBLIC_KEY ?? '',
+    privateKey: env.VAPID_PRIVATE_KEY ?? '',
+    subject: env.VAPID_SUBJECT ?? '',
+  },
   smtp: {
     host: env.SMTP_HOST ?? '',
     port: Number(env.SMTP_PORT ?? 587),

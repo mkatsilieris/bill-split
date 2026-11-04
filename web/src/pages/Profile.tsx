@@ -1,9 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, errorMessage } from '../api';
 import { useAuth } from '../auth';
 import type { User } from '../types';
 import { Avatar, ErrorBox, Field, SuccessBox } from '../components/ui';
+import { disablePush, enablePush, needsHomeScreen, pushEnabled, pushSupported } from '../push';
 
 export default function Profile() {
   const { user, setUser, logout, viaAccess } = useAuth();
@@ -80,6 +81,8 @@ export default function Profile() {
         </form>
       </section>
 
+      <NotificationsCard />
+
       {viaAccess ? (
         <section className="card stack">
           <h2>Σύνδεση</h2>
@@ -138,5 +141,73 @@ export default function Profile() {
         Αποσύνδεση
       </button>
     </div>
+  );
+}
+
+/** Turns push notifications on or off for this device (phone, browser) only. */
+function NotificationsCard() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const supported = pushSupported();
+
+  useEffect(() => {
+    if (supported) pushEnabled().then(setEnabled, () => setEnabled(false));
+  }, [supported]);
+
+  async function run(action: () => Promise<void>, message: string) {
+    setBusy(true);
+    setError(null);
+    setOk(null);
+    try {
+      await action();
+      setEnabled(await pushEnabled());
+      setOk(message);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card stack">
+      <h2>Ειδοποιήσεις</h2>
+      {!supported ? (
+        <p className="muted">
+          {needsHomeScreen()
+            ? 'Στο iPhone οι ειδοποιήσεις λειτουργούν μόνο από την εφαρμογή στην αρχική οθόνη: Κοινοποίηση → «Προσθήκη στην οθόνη Αφετηρίας», ανοίξτε την από εκεί και ελάτε ξανά εδώ.'
+            : 'Αυτός ο browser δεν υποστηρίζει ειδοποιήσεις.'}
+        </p>
+      ) : (
+        <>
+          <p className="muted">
+            Ειδοποίηση σε αυτή τη συσκευή όταν κάποιος άλλος προσθέτει έξοδο σε μια ομάδα σας. Ισχύει μόνο για
+            τη συσκευή που χρησιμοποιείτε τώρα.
+          </p>
+          <ErrorBox error={error} />
+          <SuccessBox message={ok} />
+          {enabled === null ? null : enabled ? (
+            <div className="row gap wrap">
+              <button
+                className="btn"
+                disabled={busy}
+                onClick={() => run(() => api('/push/test', { method: 'POST' }), 'Στάλθηκε δοκιμαστική ειδοποίηση')}
+              >
+                Δοκιμή
+              </button>
+              <button className="btn btn-danger" disabled={busy} onClick={() => run(disablePush, 'Οι ειδοποιήσεις απενεργοποιήθηκαν')}>
+                Απενεργοποίηση
+              </button>
+            </div>
+          ) : (
+            <button className="btn btn-primary" disabled={busy} onClick={() => run(enablePush, 'Οι ειδοποιήσεις ενεργοποιήθηκαν')}>
+              Ενεργοποίηση ειδοποιήσεων
+            </button>
+          )}
+        </>
+      )}
+    </section>
   );
 }
