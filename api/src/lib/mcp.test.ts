@@ -169,6 +169,21 @@ test('deleted items: the group kind needs no group, the others do', async () => 
   assert.match(r.content[0].text, /group_id/);
 });
 
+test('categories: add, rename and remove go through the categories route of the group', async () => {
+  const c = ctx('write');
+  await call('add_category', { group_id: 3, name: 'Κατοικίδια' }, c);
+  await call('rename_category', { group_id: 3, category_id: 8, name: 'Ζώα' }, c);
+  await call('remove_category', { group_id: 3, category_id: 8 }, c);
+  assert.deepEqual(c.calls, [
+    { method: 'POST', path: '/groups/3/categories', body: { name: 'Κατοικίδια' } },
+    { method: 'PATCH', path: '/groups/3/categories/8', body: { name: 'Ζώα' } },
+    { method: 'DELETE', path: '/groups/3/categories/8', body: undefined },
+  ]);
+  const r = await call('rename_category', { group_id: 3, category_id: 8, name: '' }, c);
+  assert.ok(r.isError);
+  assert.equal(c.calls.length, 3);
+});
+
 test('get_monthly_stats keeps only the latest months asked for', async () => {
   const months = Array.from({ length: 30 }, (_, i) => ({ month: i }));
   const c = ctx('read', () => ({ months }));

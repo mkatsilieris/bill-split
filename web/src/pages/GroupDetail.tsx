@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, errorMessage } from '../api';
 import { useAuth } from '../auth';
-import type { Group, Member, Role } from '../types';
+import type { Category, Group, Member, Role } from '../types';
 import { ErrorBox, Spinner } from '../components/ui';
 import { ExpensesTab } from '../components/ExpensesTab';
 import { BalancesTab } from '../components/BalancesTab';
@@ -12,6 +12,7 @@ import { StatsTab } from '../components/StatsTab';
 export interface GroupData {
   group: Group;
   members: Member[];
+  categories: Category[];
   my_role: Role;
 }
 
@@ -55,7 +56,7 @@ export default function GroupDetail() {
   }
   if (!data || !user) return <Spinner />;
 
-  const { group, members, my_role } = data;
+  const { group, members, categories, my_role } = data;
   const setTab = (t: Tab) => setParams({ tab: t }, { replace: true });
 
   return (
@@ -83,7 +84,7 @@ export default function GroupDetail() {
       </nav>
 
       {tab === 'expenses' && (
-        <ExpensesTab group={group} members={members} currentUserId={user.id} version={version} onChanged={reload} />
+        <ExpensesTab group={group} members={members} categories={categories} currentUserId={user.id} version={version} onChanged={reload} />
       )}
       {tab === 'balances' && (
         <BalancesTab group={group} members={members} currentUserId={user.id} version={version} onChanged={reload} />
@@ -93,6 +94,7 @@ export default function GroupDetail() {
         <MembersTab
           group={group}
           members={members}
+          categories={categories}
           myRole={my_role}
           currentUserId={user.id}
           onChanged={reload}

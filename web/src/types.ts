@@ -41,6 +41,12 @@ export interface Member {
   share_percent: number | null;
 }
 
+/** An expense category of a group (the list the expense form offers). */
+export interface Category {
+  id: number;
+  name: string;
+}
+
 export interface ExpenseShare {
   user_id: number;
   name: string;

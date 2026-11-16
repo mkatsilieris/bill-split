@@ -1,25 +1,25 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { api, errorMessage } from '../api';
 import { money, today } from '../format';
-import type { Expense, Group, Member, SplitType } from '../types';
+import type { Category, Expense, Group, Member, SplitType } from '../types';
 import { ErrorBox, Field, Modal } from './ui';
 
 interface Props {
   group: Group;
   members: Member[];
+  /** the categories of the group */
+  categories: Category[];
   currentUserId: number;
   existing?: Expense;
   onClose: () => void;
   onSaved: () => void;
 }
 
-const CATEGORIES = ['Σούπερ μάρκετ', 'Φαγητό', 'Λογαριασμοί', 'Ενοίκιο', 'Μεταφορικά', 'Διαμονή', 'Διασκέδαση', 'Υγεία', 'Παιδιά', 'Άλλο'];
-
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function ExpenseForm({ group, members, currentUserId, existing, onClose, onSaved }: Props) {
+export function ExpenseForm({ group, members, categories, currentUserId, existing, onClose, onSaved }: Props) {
   const [description, setDescription] = useState(existing?.description ?? '');
   const [amount, setAmount] = useState(existing ? String(existing.amount) : '');
   const [paidBy, setPaidBy] = useState<number>(existing?.paid_by ?? currentUserId);
@@ -48,6 +48,12 @@ export function ExpenseForm({ group, members, currentUserId, existing, onClose, 
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // an expense may have a category that is no longer on the list of the group: keep it selectable
+  const categoryOptions = useMemo(() => {
+    const names = categories.map((c) => c.name);
+    return existing?.category && !names.includes(existing.category) ? [...names, existing.category] : names;
+  }, [categories, existing]);
 
   const total = Number(amount) || 0;
   const percentSum = useMemo(
@@ -161,7 +167,7 @@ export function ExpenseForm({ group, members, currentUserId, existing, onClose, 
           <Field label="Κατηγορία">
             <select value={category} onChange={(e) => setCategory(e.target.value)}>
               <option value="">—</option>
-              {CATEGORIES.map((c) => (
+              {categoryOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>

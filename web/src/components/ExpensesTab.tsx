@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../api';
 import { date, money, monthLabel } from '../format';
-import type { Expense, Group, Member, MonthStats } from '../types';
+import type { Category, Expense, Group, Member, MonthStats } from '../types';
 import { Avatar, DeletedItems, Empty, ErrorBox, Spinner } from './ui';
 import { ExpenseForm } from './ExpenseForm';
 
 interface Props {
   group: Group;
   members: Member[];
+  categories: Category[];
   currentUserId: number;
   version: number;
   onChanged: () => void;
@@ -35,7 +36,7 @@ interface MonthPage {
  * The list grouped by month: the latest month is open, the others collapsed until tapped.
  * Each month loads its own expenses on demand and pages through them.
  */
-export function ExpensesTab({ group, members, currentUserId, version, onChanged }: Props) {
+export function ExpensesTab({ group, members, categories, currentUserId, version, onChanged }: Props) {
   const [months, setMonths] = useState<MonthStats[] | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [pages, setPages] = useState<Map<string, MonthPage>>(new Map());
@@ -297,6 +298,7 @@ export function ExpensesTab({ group, members, currentUserId, version, onChanged 
         <ExpenseForm
           group={group}
           members={members}
+          categories={categories}
           currentUserId={currentUserId}
           existing={editing === 'new' ? undefined : editing}
           onClose={() => setEditing(null)}

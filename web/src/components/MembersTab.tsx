@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, errorMessage } from '../api';
 import { percent } from '../format';
-import type { Group, Member, Role, SplitMode } from '../types';
+import type { Category, Group, Member, Role, SplitMode } from '../types';
+import { CategoriesCard } from './CategoriesCard';
 import { Avatar, ErrorBox, Field, SuccessBox } from './ui';
 
 interface Props {
   group: Group;
   members: Member[];
+  categories: Category[];
   myRole: Role;
   currentUserId: number;
   onChanged: () => Promise<unknown> | void;
@@ -17,7 +19,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function MembersTab({ group, members, myRole, currentUserId, onChanged, onLeft }: Props) {
+export function MembersTab({ group, members, categories, myRole, currentUserId, onChanged, onLeft }: Props) {
   const isOwner = myRole === 'owner';
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -301,6 +303,8 @@ export function MembersTab({ group, members, myRole, currentUserId, onChanged, o
           </button>
         </form>
       </section>
+
+      <CategoriesCard group={group} categories={categories} onChanged={onChanged} />
 
       {isOwner && (
         <section className="card stack danger-zone">

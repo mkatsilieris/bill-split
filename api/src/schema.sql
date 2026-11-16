@@ -163,6 +163,42 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(user_id) WHERE deleted_at IS NULL;
 
+-- The categories a group offers in its expense form. Every group starts with default_categories()
+-- and its members add, rename and remove their own. expenses.category keeps the name as text:
+-- renaming a category here renames it in the expenses of the group too (routes/categories.ts),
+-- removing one leaves the expenses as they are. Names are unique per group ignoring case and accents.
+CREATE OR REPLACE FUNCTION default_categories() RETURNS text[]
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE
+  AS $$ SELECT ARRAY['Σούπερ μάρκετ', 'Φαγητό', 'Λογαριασμοί', 'Ενοίκιο', 'Μεταφορικά', 'Διαμονή', 'Διασκέδαση', 'Υγεία', 'Παιδιά', 'Άλλο'] $$;
+
+CREATE TABLE IF NOT EXISTS group_categories (
+  id         SERIAL PRIMARY KEY,
+  group_id   INT NOT NULL REFERENCES groups(id),
+  name       TEXT NOT NULL,
+  created_by INT REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
+  deleted_by INT REFERENCES users(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS group_categories_name_idx ON group_categories(group_id, search_norm(name)) WHERE deleted_at IS NULL;
+
+-- Groups from before this table (no rows at all, not even removed ones) get the defaults plus
+-- whatever other categories their expenses already use.
+WITH fresh AS (
+  SELECT g.id FROM groups g WHERE NOT EXISTS (SELECT 1 FROM group_categories c WHERE c.group_id = g.id)
+), names AS (
+  SELECT f.id AS group_id, d.name, d.pos
+    FROM fresh f CROSS JOIN unnest(default_categories()) WITH ORDINALITY AS d(name, pos)
+  UNION ALL
+  SELECT e.group_id, min(btrim(e.category)), 1000
+    FROM expenses e JOIN fresh f ON f.id = e.group_id
+   WHERE btrim(e.category) <> ''
+     AND search_norm(btrim(e.category)) NOT IN (SELECT search_norm(x) FROM unnest(default_categories()) AS x)
+   GROUP BY e.group_id, search_norm(btrim(e.category))
+)
+INSERT INTO group_categories (group_id, name)
+SELECT group_id, name FROM names ORDER BY group_id, pos, name;
+
 -- Nothing is ever removed: rows are flagged with deleted_at and can be restored.
 ALTER TABLE groups        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
 ALTER TABLE group_members ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
@@ -197,16 +233,16 @@ $$ LANGUAGE plpgsql;
 DO $$
 DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'group_categories'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER keep_history AFTER UPDATE OR DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION keep_row_history()', t);
   END LOOP;
   -- expense_shares is left out: editing an expense replaces its shares, the old ones stay in row_history
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'api_tokens', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'group_categories', 'api_tokens', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_delete BEFORE DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'api_tokens', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'group_categories', 'api_tokens', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_truncate BEFORE TRUNCATE ON %I
                     FOR EACH STATEMENT EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;

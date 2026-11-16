@@ -45,6 +45,8 @@ const groupId = id.describe('Group id from list_groups');
 const userId = id.describe('user_id of a member, from get_group');
 const amount = z.number().positive().max(100_000_000).describe('Money in the currency of the group, at most two decimals');
 const note = z.string().max(200).optional();
+const categoryId = id.describe('id of a category, from `categories` of get_group');
+const categoryName = z.string().min(1).max(50).describe('Name of the category, without commas');
 const none = z.object({});
 
 const q = (params: Record<string, string | number | undefined>): string => {
@@ -137,8 +139,8 @@ export const tools: Tool[] = [
     name: 'get_group',
     title: 'Ομάδα και μέλη',
     description:
-      'One group: its settings (split_mode equal or percentage, invite code) and its members with user_id, name, e-mail, role and share_percent. ' +
-      'Use it to turn a name the person says into a user_id.',
+      'One group: its settings (split_mode equal or percentage, invite code), its members with user_id, name, e-mail, role and share_percent, ' +
+      'and `categories`, the expense categories of the group (id, name). Use it to turn a name the person says into a user_id.',
     write: false,
     input: z.object({ group_id: groupId }),
     run: (a, api) => api('GET', `/groups/${a.group_id}`),
@@ -214,6 +216,34 @@ export const tools: Tool[] = [
     run: (a, api) => api('POST', `/groups/${a.group_id}/invite-code`),
   },
 
+  // ---------------------------------------------------------------- categories
+  {
+    name: 'add_category',
+    title: 'Νέα κατηγορία',
+    description: 'Adds an expense category to a group, for every member. The current ones are in `categories` of get_group. Names are unique in the group, ignoring case and accents.',
+    write: true,
+    input: z.object({ group_id: groupId, name: categoryName }),
+    run: (a, api) => api('POST', `/groups/${a.group_id}/categories`, { name: a.name }),
+  },
+  {
+    name: 'rename_category',
+    title: 'Μετονομασία κατηγορίας',
+    description:
+      'Renames an expense category of a group. Every expense of the group that has it gets the new name too (`expenses_updated` says how many), so past months and statistics follow.',
+    write: true,
+    input: z.object({ group_id: groupId, category_id: categoryId, name: categoryName }),
+    run: (a, api) => api('PATCH', `/groups/${a.group_id}/categories/${a.category_id}`, { name: a.name }),
+  },
+  {
+    name: 'remove_category',
+    title: 'Αφαίρεση κατηγορίας',
+    description:
+      'Takes an expense category off the list of a group, so that it is no longer offered for new expenses. Expenses that already have it keep it. Confirm with the person before calling.',
+    write: true,
+    input: z.object({ group_id: groupId, category_id: categoryId }),
+    run: (a, api) => api('DELETE', `/groups/${a.group_id}/categories/${a.category_id}`),
+  },
+
   // ---------------------------------------------------------------- expenses
   {
     name: 'list_expenses',
@@ -265,7 +295,7 @@ export const tools: Tool[] = [
     title: 'Νέο έξοδο',
     description:
       'Adds an expense to a group. The other members get a notification with their share. Without `split` it follows the rule of the group. ' +
-      'Categories the app offers: Σούπερ μάρκετ, Φαγητό, Λογαριασμοί, Ενοίκιο, Μεταφορικά, Διαμονή, Διασκέδαση, Υγεία, Παιδιά, Άλλο.',
+      '`category`: one of the `categories` of the group (get_group), written exactly as there. If none fits, leave it out or offer to add one with add_category.',
     write: true,
     input: z.object({
       group_id: groupId,

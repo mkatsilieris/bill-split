@@ -9,6 +9,7 @@ import { userBalanceSql } from '../lib/balance-sql.js';
 import { expensesRouter } from './expenses.js';
 import { settlementsRouter } from './settlements.js';
 import { debtChangesRouter } from './debt_changes.js';
+import { categoriesRouter, loadCategories, seedCategories } from './categories.js';
 
 export const groupsRouter = Router();
 groupsRouter.use(requireAuth);
@@ -61,6 +62,7 @@ groupsRouter.post('/', async (req, res) => {
       rows[0].id,
       req.user.id,
     ]);
+    await seedCategories(rows[0].id, req.user.id, tx);
     return rows[0];
   });
   res.status(201).json({ group });
@@ -92,8 +94,8 @@ groupsRouter.get('/deleted', async (req, res) => {
 groupsRouter.get('/:id', async (req, res) => {
   const groupId = parseId(req.params.id);
   const { group, role } = await requireMember(groupId, req.user.id);
-  const members = await loadMembers(groupId);
-  res.json({ group, members, my_role: role });
+  const [members, categories] = await Promise.all([loadMembers(groupId), loadCategories(groupId)]);
+  res.json({ group, members, categories, my_role: role });
 });
 
 /** Update name/description/currency and the default split rule of the group. */
@@ -239,5 +241,6 @@ groupsRouter.delete('/:id/members/:userId', async (req, res) => {
 });
 
 groupsRouter.use('/:id/expenses', expensesRouter);
+groupsRouter.use('/:id/categories', categoriesRouter);
 groupsRouter.use('/:id', settlementsRouter);
 groupsRouter.use('/:id', debtChangesRouter);
