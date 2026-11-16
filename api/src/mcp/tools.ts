@@ -334,7 +334,7 @@ export const tools: Tool[] = [
     title: 'Υπόλοιπα',
     description:
       'Who owes whom in a group. `balances`: per member what they paid, what their share was, payments made and received, and net (positive = is owed, negative = owes). ' +
-      '`suggestions`: the fewest payments that settle everything.',
+      '`suggestions`: payments that settle everything; the fewest possible when up to 10 members have a non-zero balance, close to the fewest above that.',
     write: false,
     input: z.object({ group_id: groupId }),
     run: (a, api) => api('GET', `/groups/${a.group_id}/balances`),
