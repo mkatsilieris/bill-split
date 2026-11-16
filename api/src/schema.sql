@@ -144,6 +144,25 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions(user_id) WHERE deleted_at IS NULL;
 
+-- Personal access tokens (Profile > Claude): let a program act as the person without their password.
+-- Only the SHA-256 of the token is kept; "hint" is its first characters, to recognise it in a list.
+-- A token belongs to one person and reaches only what that person reaches. Revoked = deleted_at set.
+-- (No keep_history trigger: last_used_at changes all the time and the hash has no place in row_history.)
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           SERIAL PRIMARY KEY,
+  user_id      INT NOT NULL REFERENCES users(id),
+  name         TEXT NOT NULL,
+  token_hash   TEXT UNIQUE NOT NULL,
+  hint         TEXT NOT NULL,
+  scope        TEXT NOT NULL CHECK (scope IN ('read', 'write')),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at   TIMESTAMPTZ NOT NULL,
+  last_used_at TIMESTAMPTZ,
+  deleted_at   TIMESTAMPTZ,
+  deleted_by   INT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(user_id) WHERE deleted_at IS NULL;
+
 -- Nothing is ever removed: rows are flagged with deleted_at and can be restored.
 ALTER TABLE groups        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
 ALTER TABLE group_members ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS deleted_by INT REFERENCES users(id);
@@ -183,11 +202,11 @@ BEGIN
                     FOR EACH ROW EXECUTE FUNCTION keep_row_history()', t);
   END LOOP;
   -- expense_shares is left out: editing an expense replaces its shares, the old ones stay in row_history
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'api_tokens', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_delete BEFORE DELETE ON %I
                     FOR EACH ROW EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;
-  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'row_history'] LOOP
+  FOREACH t IN ARRAY ARRAY['users', 'groups', 'group_members', 'expenses', 'expense_shares', 'settlements', 'imports', 'debt_changes', 'app_secrets', 'push_subscriptions', 'api_tokens', 'row_history'] LOOP
     EXECUTE format('CREATE OR REPLACE TRIGGER forbid_truncate BEFORE TRUNCATE ON %I
                     FOR EACH STATEMENT EXECUTE FUNCTION forbid_hard_delete()', t);
   END LOOP;

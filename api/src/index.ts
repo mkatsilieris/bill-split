@@ -11,6 +11,8 @@ import { authRouter } from './routes/auth.js';
 import { groupsRouter } from './routes/groups.js';
 import { adminRouter } from './routes/admin.js';
 import { pushRouter } from './routes/push.js';
+import { tokensRouter } from './routes/tokens.js';
+import { mcpRouter } from './routes/mcp.js';
 import { initPush, pushPublicKey } from './push.js';
 import { importSplitwise } from './import.js';
 
@@ -29,6 +31,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/groups', groupsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/push', pushRouter);
+app.use('/api/tokens', tokensRouter);
+app.use('/api/mcp', mcpRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 app.use(errorHandler);
@@ -50,6 +54,7 @@ async function main() {
         smtp: mailConfigured,
         push: Boolean(pushPublicKey()),
         admins: config.adminEmails.length,
+        timeZone: config.timeZone,
       },
       'features',
     );

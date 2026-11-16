@@ -227,6 +227,14 @@ expensesRouter.get('/months', async (req, res) => {
   res.json({ months: [...byMonth.values()] });
 });
 
+/** One expense with its shares (registered after /deleted and /months, which are not ids). */
+expensesRouter.get('/:expenseId', async (req, res) => {
+  const groupId = parseId((req.params as Record<string, string>).id);
+  const expenseId = parseId(req.params.expenseId);
+  await requireMember(groupId, req.user.id);
+  res.json({ expense: await loadExpense(groupId, expenseId) });
+});
+
 expensesRouter.post('/', async (req, res) => {
   const groupId = parseId((req.params as Record<string, string>).id);
   const body = expenseBody.parse(req.body);

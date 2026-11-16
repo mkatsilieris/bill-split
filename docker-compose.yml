@@ -43,6 +43,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-billsplit}:${POSTGRES_PASSWORD:-billsplit}@db:5432/${POSTGRES_DB:-billsplit}
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
       APP_URL: ${APP_URL:-http://localhost:8080}
+      DISPLAY_TZ: ${DISPLAY_TZ:-Europe/Athens}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}

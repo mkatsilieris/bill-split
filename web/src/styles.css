@@ -550,6 +550,16 @@ input[type='radio'] {
   background: var(--success-bg);
   color: var(--success);
 }
+.alert-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+@media (prefers-color-scheme: dark) {
+  .alert-warn {
+    background: #3b2f0f;
+    color: #fcd34d;
+  }
+}
 
 /* ---- modal ---- */
 .modal-backdrop {
@@ -918,4 +928,29 @@ input[type='radio'] {
   .dropdown-menu {
     left: 0;
   }
+}
+
+/* ---- Claude: personal access tokens ---- */
+.token-box {
+  padding: 12px;
+  background: var(--surface-2);
+  border-radius: 10px;
+}
+.token-name {
+  font-weight: 600;
+}
+.token-secret {
+  display: block;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }

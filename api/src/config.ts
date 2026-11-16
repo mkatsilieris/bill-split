@@ -9,6 +9,8 @@ export const config = {
   jwtSecret: env.JWT_SECRET ?? 'dev-secret-change-me',
   jwtExpiresIn: env.JWT_EXPIRES_IN ?? '30d',
   appUrl: (env.APP_URL ?? 'http://localhost:8080').replace(/\/$/, ''),
+  /** IANA time zone that decides which calendar day "today" is for Claude (the server itself runs in UTC). */
+  timeZone: env.DISPLAY_TZ ?? 'Europe/Athens',
   // Cloudflare Access single sign-on. Both empty = disabled (plain e-mail/password login only).
   access: {
     teamDomain: (env.ACCESS_TEAM_DOMAIN ?? '').replace(/^https?:\/\//, '').replace(/\/$/, ''),

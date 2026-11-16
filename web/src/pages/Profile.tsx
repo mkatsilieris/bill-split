@@ -4,6 +4,7 @@ import { api, errorMessage } from '../api';
 import { useAuth } from '../auth';
 import type { User } from '../types';
 import { Avatar, ErrorBox, Field, SuccessBox } from '../components/ui';
+import { ClaudeCard } from '../components/ClaudeCard';
 import { disablePush, enablePush, needsHomeScreen, pushEnabled, pushSupported } from '../push';
 
 export default function Profile() {
@@ -82,6 +83,8 @@ export default function Profile() {
       </section>
 
       <NotificationsCard />
+
+      <ClaudeCard />
 
       {viaAccess ? (
         <section className="card stack">

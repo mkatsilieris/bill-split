@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { pool } from '../db.js';
-import { isAdmin, requireAdmin, requireAuth } from '../auth.js';
+import { isAdmin, requireAdmin, requireSession } from '../auth.js';
 import { HttpError, badRequest } from '../errors.js';
 import { allowlistEnabled, getAllowlist, revokeAccessSession, setAllowlist } from '../cloudflare.js';
 import { invitationText, mailConfigured, sendInvitation } from '../mail.js';
@@ -12,7 +12,8 @@ import { invitationText, mailConfigured, sendInvitation } from '../mail.js';
  * and this page always agree.
  */
 export const adminRouter = Router();
-adminRouter.use(requireAuth, requireAdmin);
+// a login session only: a personal access token (Claude) never manages who gets in
+adminRouter.use(requireSession, requireAdmin);
 
 const email = z.string().trim().toLowerCase().email('Μη έγκυρο email');
 

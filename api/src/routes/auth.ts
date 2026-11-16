@@ -145,6 +145,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     await pool.query('UPDATE users SET name = $1 WHERE id = $2', [body.name, user.id]);
   }
   if (body.newPassword) {
+    if (req.apiToken) throw new HttpError(403, 'Ο κωδικός αλλάζει μόνο μέσα από την εφαρμογή');
     const ok = body.currentPassword ? await bcrypt.compare(body.currentPassword, user.password_hash) : false;
     if (!ok) throw badRequest('Ο τρέχων κωδικός είναι λάθος');
     const hash = await bcrypt.hash(body.newPassword, 10);

@@ -16,6 +16,7 @@ Self-hosted εφαρμογή (τύπου Splitwise) για την καταγρα
 - **Υπόλοιπα & εξόφληση**: ποιος χρωστάει σε ποιον, με τις λιγότερες δυνατές πληρωμές. Καταγραφή πληρωμών με ιστορικό.
 - **Αλλαγές χρεών**: χειροκίνητη διόρθωση («ο Α χρωστάει 20 € λιγότερα στη Β») χωρίς έξοδο ή πληρωμή, και μεταφορά χρέους σε άλλη ομάδα όπου είναι μέλη και οι δύο (φεύγει από τη μία, εμφανίζεται στην άλλη, διαγράφεται και επαναφέρεται μαζί).
 - **Ειδοποιήσεις (push)**: όταν κάποιος προσθέτει έξοδο, τα υπόλοιπα μέλη της ομάδας παίρνουν ειδοποίηση στο κινητό ή στον browser, με το μερίδιό τους. Ενεργοποιείται ανά συσκευή από το Προφίλ (βλ. παρακάτω).
+- **Claude (MCP)**: με ένα προσωπικό token το Claude καταχωρεί έξοδα και εξοφλήσεις και απαντά για υπόλοιπα και στατιστικά. Κάθε token βλέπει μόνο τις ομάδες του κατόχου του (βλ. παρακάτω).
 - **Εισαγωγή από Splitwise**: το CSV export μιας ομάδας του Splitwise μπαίνει σε μια ομάδα με όλα τα έξοδα και τις πληρωμές (βλ. παρακάτω).
 - **Τίποτα δεν σβήνεται**: τα διαγραμμένα έξοδα, πληρωμές, ομάδες και μέλη μένουν στη βάση με `deleted_at` και επαναφέρονται. Κάθε αλλαγή κρατά την προηγούμενη τιμή στον πίνακα `row_history`.
 - **Mobile-first UI** στα ελληνικά, light/dark mode.
@@ -54,6 +55,7 @@ docker compose up -d --build
 | `APP_URL` | Δημόσιο URL της εφαρμογής, μπαίνει στους συνδέσμους επαναφοράς κωδικού και είναι το μόνο επιτρεπτό CORS origin |
 | `COMPOSE_PROFILES` / `TUNNEL_TOKEN` | `internet` + token του Cloudflare Tunnel για πρόσβαση από το Internet (βλ. παρακάτω). Χωρίς αυτά = μόνο τοπικό δίκτυο |
 | `JWT_SECRET` | Μυστικό υπογραφής των tokens σύνδεσης. **Άλλαξέ το.** |
+| `DISPLAY_TZ` | Ζώνη ώρας που ορίζει το «σήμερα» για το Claude (default `Europe/Athens`) |
 | `POSTGRES_*` | Στοιχεία βάσης (εσωτερικά στο docker) |
 | `SMTP_*` | Προαιρετικά, για αποστολή email επαναφοράς κωδικού |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Προαιρετικά, για τις ειδοποιήσεις push. Χωρίς αυτά το API φτιάχνει κλειδιά μόνο του (βλ. Ειδοποιήσεις) |
@@ -212,6 +214,42 @@ plan μένει δωρεάν. Αν κάποιος φύγει, βγάλε τον 
 - Χωρίς `COMPOSE_PROFILES=internet` το container `tunnel` δεν δημιουργείται καθόλου.
 - Logs του tunnel: `ssh billsplit-pi logs tunnel`.
 
+## Claude (MCP)
+
+Το API έχει ένα endpoint για το Claude, `POST /api/mcp` (Model Context Protocol, streamable HTTP, χωρίς sessions).
+Τα 29 εργαλεία του (`api/src/mcp/tools.ts`) δεν αγγίζουν τη βάση: καλούν τα ίδια routes με την εφαρμογή, με το token
+του χρήστη. Τι δίνεις σε έναν χρήστη: [docs/CLAUDE.md](docs/CLAUDE.md).
+
+**Κάθε token βλέπει μόνο τα δικά του.** Το token αντιστοιχεί σε έναν λογαριασμό (`api_tokens.user_id`) και γίνεται το
+`req.user` του αιτήματος. Από εκεί και πέρα ισχύει ό,τι και στην εφαρμογή: η λίστα ομάδων είναι οι ομάδες όπου είναι
+μέλος, και κάθε route ομάδας περνά από το `requireMember`. Ομάδα άλλου απαντά «Δεν είστε μέλος αυτής της ομάδας», είτε
+για ανάγνωση είτε για αλλαγή.
+
+Το Claude είναι πρόγραμμα και δεν μπορεί να περάσει τη σελίδα σύνδεσης του Cloudflare Access. Για να φτάνει στο
+endpoint από το Internet, τρέξε μία φορά (token με `Access: Apps and Policies: Edit`):
+
+```powershell
+$env:CLOUDFLARE_API_TOKEN = "..."
+node scripts/cloudflare-claude.mjs            # --remove για να κλείσει ξανά
+```
+
+Φτιάχνει δεύτερη Access application μόνο για το `bills.ninblack.com/api/mcp` με policy `bypass`. Όλα τα υπόλοιπα
+μένουν πίσω από το Access. Στο τοπικό δίκτυο (`http://ninblack-pi.local:8080/api/mcp`) δουλεύει και χωρίς αυτό, αλλά
+εκεί το token ταξιδεύει χωρίς κρυπτογράφηση. Από εκεί και πέρα την πόρτα τη φυλάει το API:
+
+- **Προσωπικά tokens** (`bst_` + 256 τυχαία bits). Στη βάση μένει μόνο το SHA-256 τους (`api_tokens`), εμφανίζονται
+  μία φορά, λήγουν σε 30 / 90 / 365 ημέρες, ανακαλούνται από το Προφίλ (`deleted_at`, ισχύει αμέσως), ως 10 ανά χρήστη.
+- **Δικαιώματα**: `read` (μόνο GET και μόνο τα εργαλεία ανάγνωσης) ή `write`. Κανένα token δεν φτιάχνει ή ανακαλεί
+  tokens, δεν αλλάζει κωδικό και δεν φτάνει στη διαχείριση της allowlist· αυτά θέλουν σύνδεση από την εφαρμογή
+  (`requireSession`).
+- **Όρια**: 10 λάθος tokens ανά διεύθυνση σε 15 λεπτά και μετά `429`· 120 κλήσεις το λεπτό ανά token στο `/api/mcp`.
+- Το `/api/mcp` δέχεται μόνο προσωπικά tokens (όχι το JWT της εφαρμογής) και απορρίπτει αιτήματα με ξένο `Origin`.
+- **Ίχνος**: γραμμή `mcp tool call` στα logs για κάθε ενέργεια (χρήστης, token, εργαλείο, όχι τα περιεχόμενα).
+
+Το token ταξιδεύει στο header `x-api-key` (σκέτο, χωρίς «Bearer»), άρα η διεύθυνση που δίνεις στους χρήστες πρέπει να
+είναι η https. Αν προτιμάς να μην είναι το endpoint ανοιχτό στο Internet, άλλαξε την policy σε `Service Auth` με ένα
+Access service token και δώσε στους χρήστες δύο επιπλέον headers (`CF-Access-Client-Id`, `CF-Access-Client-Secret`).
+
 ## Εισαγωγή από Splitwise
 
 Το export μιας ομάδας του Splitwise (Group settings > Export as spreadsheet, αρχείο CSV) μπαίνει σε μια ομάδα της
@@ -263,7 +301,7 @@ cd api && npm install && npm run dev
 cd web && npm install && npm run dev
 ```
 
-Tests λογικής διαμοιρασμού/υπολοίπων: `cd api && npm test`.
+Tests (διαμοιρασμός, υπόλοιπα, tokens, MCP): `cd api && npm test`.
 
 ## Ειδοποιήσεις (push)
 
@@ -293,6 +331,7 @@ Logs: `docker compose logs api | grep push` (`device subscribed`, `notification 
 | POST | `/api/groups/join` | Συμμετοχή με κωδικό |
 | GET/PATCH/DELETE | `/api/groups/:id` | Ομάδα, ρυθμίσεις (split_mode, ποσοστά) |
 | POST/DELETE | `/api/groups/:id/members[/:userId]` | Μέλη |
+| GET | `/api/groups/:id/expenses/:eid` | Ένα έξοδο με τα μερίδιά του |
 | GET/POST/PUT/DELETE | `/api/groups/:id/expenses[/:eid]` | Έξοδα (`?month=YYYY-MM`, `?limit`, `?offset`· η απάντηση έχει και `total`) |
 | GET | `/api/groups/:id/expenses/months` | Σύνολα ανά μήνα, ανά κατηγορία και ανά μέλος |
 | GET | `/api/groups/:id/balances` | Υπόλοιπα + προτεινόμενες πληρωμές |
@@ -303,8 +342,11 @@ Logs: `docker compose logs api | grep push` (`device subscribed`, `notification 
 | GET | `/api/groups/deleted` · `/api/groups/:id/expenses/deleted` · `/api/groups/:id/settlements/deleted` · `/api/groups/:id/debt-changes/deleted` | Διαγραμμένα |
 | GET · POST | `/api/push/key` · `/api/push/subscribe` · `/unsubscribe` · `/test` | Ειδοποιήσεις push της συσκευής |
 | POST | `/api/groups/:id/restore` · `.../expenses/:eid/restore` · `.../settlements/:sid/restore` · `.../debt-changes/:cid/restore` | Επαναφορά |
+| GET/POST | `/api/tokens` · DELETE `/api/tokens/:id` | Προσωπικά tokens (μόνο με σύνδεση από την εφαρμογή) |
+| POST | `/api/mcp` | Το endpoint του Claude (MCP), μόνο με προσωπικό token |
 
-Όλα τα endpoints εκτός των auth απαιτούν header `Authorization: Bearer <token>`.
+Όλα τα endpoints εκτός των auth απαιτούν είτε `x-api-key: <προσωπικό token bst_...>` είτε
+`Authorization: Bearer <token>` (το token της σύνδεσης, που στέλνει η εφαρμογή, ή προσωπικό token).
 
 ## Διαγραφές και ιστορικό
 

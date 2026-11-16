@@ -27,6 +27,10 @@ export function SuccessBox({ message }: { message: string | null }) {
   );
 }
 
+export function WarnBox({ children }: { children: ReactNode }) {
+  return <div className="alert alert-warn">{children}</div>;
+}
+
 export function Field({
   label,
   hint,
